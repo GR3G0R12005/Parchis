@@ -17,6 +17,8 @@ export interface Token {
 export interface GameState {
   players: {
     id: string;
+    username: string;
+    avatar: string;
     color: PlayerColor;
     tokens: Token[];
     isTurn: boolean;
@@ -28,4 +30,5 @@ export interface GameState {
   bonusSteps: number; // For 20 steps (capture) or 10 steps (goal)
   extraTurns: number; // For rolling a 6
   consecutiveSixes: number; // To handle the "3 sixes in a row" rule
+  roomId: string;
 }

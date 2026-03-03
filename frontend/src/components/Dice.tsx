@@ -14,7 +14,7 @@ export const Dice: React.FC<DiceProps> = ({ onRoll, disabled }) => {
   const rollDice = () => {
     if (disabled || rolling) return;
     setRolling(true);
-    
+
     if ('vibrate' in navigator) {
       navigator.vibrate([10, 30, 10, 30]);
     }
@@ -40,7 +40,7 @@ export const Dice: React.FC<DiceProps> = ({ onRoll, disabled }) => {
   };
 
   return (
-    <div className="flex gap-4">
+    <div className="flex gap-2 bg-black/20 p-2 rounded-2xl backdrop-blur-sm border border-white/10">
       {[0, 1].map((idx) => (
         <motion.div
           key={idx}
@@ -48,18 +48,21 @@ export const Dice: React.FC<DiceProps> = ({ onRoll, disabled }) => {
           whileTap={!disabled ? { scale: 0.9 } : {}}
           onClick={rollDice}
           className={cn(
-            "w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-white flex items-center justify-center cursor-pointer shadow-2xl relative overflow-hidden",
-            disabled && "opacity-50 cursor-not-allowed grayscale",
+            "w-12 h-12 md:w-16 md:h-16 rounded-xl bg-white flex items-center justify-center cursor-pointer shadow-lg relative overflow-hidden",
+            disabled && "opacity-50 cursor-not-allowed",
             rolling && "animate-bounce"
           )}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-white to-slate-200" />
-          <div className="relative grid grid-cols-3 grid-rows-3 gap-1 md:gap-2 p-3 md:p-4 w-full h-full">
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-100 to-slate-300" />
+          {/* Bevel effect */}
+          <div className="absolute inset-[2px] border border-white/50 rounded-[10px]" />
+
+          <div className="relative grid grid-cols-3 grid-rows-3 gap-0.5 md:gap-1 p-2 md:p-3 w-full h-full">
             {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => {
               const show = shouldShowDot(values[idx], i);
               return (
                 <div key={i} className="flex items-center justify-center">
-                  {show && <div className="w-2 h-2 md:w-3 md:h-3 bg-slate-900 rounded-full shadow-inner" />}
+                  {show && <div className="w-1.5 h-1.5 md:w-2 md:h-2 bg-slate-700 rounded-full shadow-inner" />}
                 </div>
               );
             })}

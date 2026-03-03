@@ -6,5 +6,4 @@ coverage/
 *.log
 .env*
 !.env.example
-.vite/
-tmp_users.json
+.server.mjs
