@@ -4,19 +4,40 @@
 @theme {
   --font-heading: "Bangers", system-ui;
   --font-body: "Outfit", system-ui;
-  
+
+  --color-green: #4CAF50;
+  --color-red: #EF5350;
+  --color-yellow: #FBC02D;
+  --color-blue: #2196F3;
+  --color-safe: #E0E0E0;
+  --color-board-white: #FFFFFF;
+  --color-background: #4A148C;
+  /* More vibrant purple */
   --color-primary: #FF3D00;
   --color-secondary: #00E5FF;
   --color-accent: #FFD600;
-  --color-background: #0F172A;
   --color-surface: #1E293B;
-  
+
   --radius-3xl: 24px;
 }
 
 @layer base {
   body {
     @apply bg-background text-slate-50 font-body;
+    background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.1) 1.5px, transparent 0);
+    background-size: 50px 50px;
+    background-color: #4A148C;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.4) 100%);
+    pointer-events: none;
+    z-index: -1;
   }
 
   /* Custom Scrollbar Styling */
@@ -37,7 +58,7 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-primary/80;
+    background-color: #FF3D00CC;
     background: linear-gradient(180deg, #FF3D00 0%, #CC3100 100%);
     box-shadow: 0 0 15px rgba(255, 61, 0, 0.5);
   }
@@ -53,24 +74,37 @@
 
   /* Hide scrollbar for IE, Edge and Firefox */
   .no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
   }
 }
 
 @layer components {
   .btn-glossy {
     @apply relative overflow-hidden px-8 py-4 rounded-3xl font-heading text-2xl tracking-wider transition-all duration-200 active:scale-95;
-    background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.1) 100%);
-    box-shadow: 0 10px 20px rgba(0,0,0,0.3), inset 0 2px 4px rgba(255,255,255,0.2);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.1) 100%);
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3), inset 0 2px 4px rgba(255, 255, 255, 0.2);
   }
-  
+
   .card-glass {
     @apply bg-surface/40 backdrop-blur-xl border border-white/10 rounded-3xl p-5 shadow-2xl;
   }
 
-  .neon-glow-red { box-shadow: 0 0 15px rgba(255, 61, 0, 0.5); }
-  .neon-glow-blue { box-shadow: 0 0 15px rgba(0, 229, 255, 0.5); }
-  .neon-glow-yellow { box-shadow: 0 0 15px rgba(255, 214, 0, 0.5); }
-  .neon-glow-green { box-shadow: 0 0 15px rgba(0, 255, 127, 0.5); }
+  .neon-glow-red {
+    box-shadow: 0 0 15px rgba(255, 61, 0, 0.5);
+  }
+
+  .neon-glow-blue {
+    box-shadow: 0 0 15px rgba(0, 229, 255, 0.5);
+  }
+
+  .neon-glow-yellow {
+    box-shadow: 0 0 15px rgba(255, 214, 0, 0.5);
+  }
+
+  .neon-glow-green {
+    box-shadow: 0 0 15px rgba(0, 255, 127, 0.5);
+  }
 }
