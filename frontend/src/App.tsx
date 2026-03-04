@@ -8,7 +8,7 @@ import { GameState, Token, PlayerColor } from './types';
 import { cn } from './utils';
 import { authService, UserProfile } from './services/authService';
 import { AuthView } from './components/AuthView';
-import { Trophy, Users, Coins, X, ShoppingBag, MessageSquare, Settings as SettingsIcon, Search, UserPlus, Check, Plus, Key, Flag, RotateCcw } from 'lucide-react';
+import { Trophy, Users, Coins, X, ShoppingBag, MessageSquare, Settings as SettingsIcon, Search, UserPlus, Check, Plus, Key, Flag, RotateCcw, Dice1 } from 'lucide-react';
 
 // --- Modal Component ---
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string, children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => (
@@ -66,6 +66,8 @@ const clearSession = () => {
   localStorage.removeItem(SESSION_KEY);
 };
 
+const TURN_DURATION_SECONDS = 30;
+
 // --- Main App Component ---
 export default function App() {
   // Auth & Profile State
@@ -88,6 +90,8 @@ export default function App() {
   const [joinCodeInput, setJoinCodeInput] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [pendingRejoin, setPendingRejoin] = useState<GameSession | null>(null);
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState(TURN_DURATION_SECONDS);
+  const [showSurrenderWinModal, setShowSurrenderWinModal] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -95,11 +99,11 @@ export default function App() {
   };
 
   const EXIT_POSITIONS: Record<PlayerColor, number> = {
-    red: 5,
-    blue: 22,
-    yellow: 39,
-    green: 56
+    red: 68, blue: 34, yellow: 51, green: 17
   };
+
+  // Track which die the player wants to use (for split dice)
+  const [selectedDie, setSelectedDie] = useState<number | null>(null);
 
   // Auth Listener (Shared/Local)
   useEffect(() => {
@@ -153,12 +157,17 @@ export default function App() {
       }
     });
 
-    newSocket.on('player-surrendered', ({ color }: { color: string }) => {
-      showToast(`${color.toUpperCase()} player surrendered!`, 'error');
+    newSocket.on('player-surrendered', ({ color, username }: { color: string; username?: string }) => {
+      showToast(`${username || color.toUpperCase()} se rindió.`, 'error');
     });
 
-    newSocket.on('game-won', ({ winnerColor }: { winnerColor: string }) => {
-      showToast(`${winnerColor.toUpperCase()} wins the game!`, 'success');
+    newSocket.on('game-won', ({ winnerColor, winnerUid, reason }: { winnerColor: string; winnerUid?: string; reason?: string }) => {
+      if (reason === 'surrender' && winnerUid === currentUser.uid) {
+        showToast('¡Ganaste! Los demás se rindieron.', 'success');
+        setShowSurrenderWinModal(true);
+      } else {
+        showToast(`${winnerColor.toUpperCase()} wins the game!`, 'success');
+      }
       clearSession();
     });
 
@@ -201,6 +210,35 @@ export default function App() {
     }
   }, [gameState?.status, view]);
 
+  // 30s timer per turn + auto-pass when time runs out
+  useEffect(() => {
+    if (view !== 'game' || gameState?.status !== 'playing' || !gameState?.currentTurn) {
+      setTurnSecondsLeft(TURN_DURATION_SECONDS);
+      return;
+    }
+
+    const startedAt = Date.now();
+    let timedOut = false;
+    setTurnSecondsLeft(TURN_DURATION_SECONDS);
+
+    const timer = setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      const left = Math.max(0, TURN_DURATION_SECONDS - elapsed);
+      setTurnSecondsLeft(left);
+
+      if (!timedOut && left <= 0.01) {
+        timedOut = true;
+        clearInterval(timer);
+        if (gameState.currentTurn === myColor && roomCode) {
+          socket?.emit('auto-play-turn', { roomId: roomCode });
+          showToast('Tiempo agotado. Se hizo una jugada automática.', 'error');
+        }
+      }
+    }, 100);
+
+    return () => clearInterval(timer);
+  }, [view, gameState?.status, gameState?.currentTurn, gameState?.turnTimerVersion, myColor, roomCode, socket]);
+
 
   // Handlers
   const handleJoinGame = (mode?: string) => {
@@ -222,7 +260,7 @@ export default function App() {
     setRoomCode(publicRoomId);
     socket?.emit('join-room', { roomId: publicRoomId, uid: currentUser.uid });
     saveSession({ roomCode: publicRoomId, myColor: 'red', uid: currentUser.uid });
-    setView('game');
+    setView('waiting-room');
   };
 
   const handleJoinByCode = async (e: React.FormEvent) => {
@@ -245,12 +283,65 @@ export default function App() {
 
   const handleRollDice = (values: [number, number]) => {
     if (!roomCode) return;
+    setSelectedDie(null);
     socket?.emit('roll-dice', { roomId: roomCode, values });
   };
 
   const handleTokenClick = (token: Token) => {
+    if (!roomCode || !gameState) return;
+    const remaining = gameState.remainingDice || [];
+    const bonus = gameState.bonusSteps || 0;
+    const canExitBySumFive = remaining.length === 2 && (remaining[0] + remaining[1] === 5);
+
+    // If bonus steps, just move (no die selection needed)
+    if (bonus > 0) {
+      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: bonus });
+      return;
+    }
+
+    // If only one die remaining, use it automatically
+    if (remaining.length === 1) {
+      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: remaining[0] });
+      return;
+    }
+
+    // If both dice are the same (doubles), use either
+    if (remaining.length === 2 && remaining[0] === remaining[1]) {
+      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: remaining[0] });
+      return;
+    }
+
+    // If a die is pre-selected, use it
+    if (selectedDie !== null && remaining.includes(selectedDie)) {
+      if (token.position === -1 && selectedDie !== 5 && (remaining.includes(5) || canExitBySumFive)) {
+        socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
+        setSelectedDie(null);
+        return;
+      }
+      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: selectedDie });
+      setSelectedDie(null);
+      return;
+    }
+
+    // Two different dice remaining: player chooses exact die value
+    if (remaining.length === 2) {
+      if (token.position === -1 && (remaining.includes(5) || canExitBySumFive)) {
+        socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
+        return;
+      }
+      if (selectedDie === null || !remaining.includes(selectedDie)) {
+        setSelectedDie(remaining[0]);
+        return;
+      }
+      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: selectedDie });
+      setSelectedDie(null);
+      return;
+    }
+  };
+
+  const handlePassDie = (dieValue: number) => {
     if (!roomCode) return;
-    socket?.emit('move-token', { roomId: roomCode, tokenId: token.id });
+    socket?.emit('pass-die', { roomId: roomCode, dieValue });
   };
 
   const handleNavChange = (id: string) => {
@@ -272,6 +363,7 @@ export default function App() {
     setGameState(null);
     setMyColor(null);
     setView('lobby');
+    setShowSurrenderWinModal(false);
   };
 
   const handleLogout = () => {
@@ -281,6 +373,7 @@ export default function App() {
     setCurrentUser(null);
     setActiveModal(null);
     setActiveTab('home');
+    setShowSurrenderWinModal(false);
   };
 
   const handleSurrender = () => {
@@ -294,6 +387,7 @@ export default function App() {
     setView('lobby');
     setActiveModal(null);
     setActiveTab('home');
+    setShowSurrenderWinModal(false);
   };
 
   const handleRejoinGame = () => {
@@ -338,35 +432,47 @@ export default function App() {
   };
 
   const getHighlightedPositions = () => {
-    if (!gameState || (!gameState.lastDiceRoll && gameState.bonusSteps === 0)) return [];
+    if (!gameState) return [];
     if (gameState.currentTurn !== myColor) return [];
 
-    const roll = gameState.lastDiceRoll;
-    const bonus = gameState.bonusSteps;
+    const remaining = gameState.remainingDice || [];
+    const bonus = gameState.bonusSteps || 0;
     const currentPlayer = gameState.players.find(p => p.color === myColor);
     if (!currentPlayer) return [];
 
-    return currentPlayer.tokens.map(token => {
-      let moveAmount = 0;
-      if (bonus > 0) {
-        moveAmount = bonus;
-      } else if (roll) {
-        const [d1, d2] = roll;
-        if (token.position === -1 && (d1 === 5 || d2 === 5 || d1 + d2 === 5)) {
-          return EXIT_POSITIONS[token.color];
+    if (bonus <= 0 && remaining.length === 0) return [];
+
+    const positions: number[] = [];
+    const dieValues = bonus > 0 ? [bonus] : [...new Set(remaining)]; // unique die values
+    const canExitBySumFive = bonus <= 0 && remaining.length === 2 && (remaining[0] + remaining[1] === 5);
+
+    for (const token of currentPlayer.tokens) {
+      for (const dieVal of dieValues) {
+        // Exit from home
+        if (token.position === -1 && (dieVal === 5 || canExitBySumFive)) {
+          positions.push(EXIT_POSITIONS[token.color]);
+          continue;
         }
-        moveAmount = d1 + d2;
-      }
+        if (token.position === -1 || token.position === 76) continue;
 
-      if (token.position === -1) return -1;
-
-      let newPos = (token.position + moveAmount) % 68;
-      if (token.position < 68 && token.position + moveAmount > 67) {
-        return 76;
+        // Movement on board
+        if (token.position >= 1 && token.position <= 68) {
+          const newPos = token.position + dieVal;
+          if (newPos <= 76) {
+            positions.push(newPos > 68 ? newPos : ((token.position + dieVal - 1) % 68) + 1);
+          }
+        } else if (token.position > 68 && token.position < 76) {
+          const newPos = token.position + dieVal;
+          if (newPos <= 76) positions.push(newPos);
+        }
       }
-      return newPos;
-    }).filter(pos => pos !== -1);
+    }
+
+    return [...new Set(positions)];
   };
+
+  const turnProgress = Math.max(0, Math.min(1, turnSecondsLeft / TURN_DURATION_SECONDS));
+  const isPublicRoom = (roomCode || '').startsWith('public-');
 
   // --- Rendering ---
 
@@ -420,9 +526,13 @@ export default function App() {
         currentUserId={currentUser?.uid}
         onRoll={handleRollDice}
         lastDiceRoll={gameState?.lastDiceRoll}
+        remainingDice={gameState?.remainingDice || []}
         currentTurn={gameState?.currentTurn}
         myColor={myColor}
         onSurrender={handleSurrender}
+        onPassDie={handlePassDie}
+        turnProgress={turnProgress}
+        turnSecondsLeft={Math.ceil(turnSecondsLeft)}
       />
 
       <main className="h-screen w-full flex items-center justify-center p-4 overflow-hidden">
@@ -591,17 +701,23 @@ export default function App() {
               </div>
 
               <div className="w-full max-w-md space-y-4">
-                <button
-                  disabled={!roomCode || (gameState?.players.length || 0) < 2 || gameState?.players[0]?.id !== currentUser?.uid}
-                  onClick={() => {
-                    if (roomCode) {
-                      socket?.emit('start-match', roomCode);
-                    }
-                  }}
-                  className="w-full bg-white text-slate-900 font-heading text-2xl py-6 rounded-[2rem] shadow-2xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:cursor-not-allowed uppercase tracking-widest"
-                >
-                  {(gameState?.players.length || 0) < 2 ? 'WAITING FOR PLAYERS...' : 'Start Match'}
-                </button>
+                {isPublicRoom ? (
+                  <div className="w-full bg-white/5 border border-white/10 text-white/80 text-sm font-bold py-5 px-6 rounded-[2rem] text-center uppercase tracking-widest">
+                    Matchmaking público: inicia automático al completar 4 jugadores ({gameState?.players.length || 0}/4)
+                  </div>
+                ) : (
+                  <button
+                    disabled={!roomCode || (gameState?.players.length || 0) < 2 || gameState?.players[0]?.id !== currentUser?.uid}
+                    onClick={() => {
+                      if (roomCode) {
+                        socket?.emit('start-match', roomCode);
+                      }
+                    }}
+                    className="w-full bg-white text-slate-900 font-heading text-2xl py-6 rounded-[2rem] shadow-2xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-20 disabled:cursor-not-allowed uppercase tracking-widest"
+                  >
+                    {(gameState?.players.length || 0) < 2 ? 'WAITING FOR PLAYERS...' : 'Start Match'}
+                  </button>
+                )}
                 <button onClick={handleLeaveRoom} className="w-full text-white/30 font-bold text-sm hover:text-white transition-all uppercase tracking-widest">
                   Leave Room
                 </button>
@@ -621,12 +737,38 @@ export default function App() {
                   highlightedPositions={getHighlightedPositions()}
                 />
               </div>
+
+              {/* Die Selector: shown when 2 different dice remain and it's my turn */}
+              {gameState?.currentTurn === myColor && (gameState?.remainingDice?.length || 0) === 2 &&
+                gameState?.remainingDice?.[0] !== gameState?.remainingDice?.[1] && (gameState?.bonusSteps || 0) === 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-xl border border-white/20 rounded-2xl px-4 py-3 flex items-center gap-3 z-50"
+                >
+                  <span className="text-white/60 text-xs font-bold uppercase tracking-widest">Usar dado:</span>
+                  {gameState.remainingDice.map((die, idx) => (
+                    <motion.button
+                      key={idx}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => setSelectedDie(die)}
+                      className={cn(
+                        "w-10 h-10 rounded-lg bg-white text-slate-900 flex items-center justify-center shadow-md font-black text-lg transition-all",
+                        selectedDie === die ? "ring-2 ring-yellow-500 scale-110" : "opacity-60"
+                      )}
+                    >
+                      {die}
+                    </motion.button>
+                  ))}
+                </motion.div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
-      <Navbar active={activeTab} onChange={handleNavChange} />
+      {view !== 'game' && <Navbar active={activeTab} onChange={handleNavChange} />}
 
       {/* Modals */}
       <Modal isOpen={activeModal === 'profile'} onClose={() => { setActiveModal(null); setActiveTab('home'); }} title="User Profile">
@@ -818,6 +960,19 @@ export default function App() {
             <button onClick={() => { handleLeaveRoom(); setActiveModal(null); setActiveTab('home'); }} className="w-full bg-red-500/20 text-red-500 font-bold py-4 rounded-2xl border border-red-500/20 hover:bg-red-500/30 transition-all">EXIT TO LOBBY</button>
           )}
           <button onClick={handleLogout} className="w-full bg-slate-800 text-slate-400 font-bold py-4 rounded-2xl border border-white/5 hover:bg-slate-700 hover:text-white transition-all">LOG OUT</button>
+        </div>
+      </Modal>
+
+      <Modal isOpen={showSurrenderWinModal} onClose={() => setShowSurrenderWinModal(false)} title="¡Ganaste!">
+        <div className="space-y-6 text-center">
+          <p className="text-white/90 font-bold text-lg">Eres el único jugador restante.</p>
+          <p className="text-white/60 text-sm">Todos los demás jugadores se rindieron.</p>
+          <button
+            onClick={handleLeaveRoom}
+            className="w-full bg-yellow-500 text-slate-900 font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-wider"
+          >
+            Ir al lobby
+          </button>
         </div>
       </Modal>
 

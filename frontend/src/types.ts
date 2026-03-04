@@ -10,7 +10,7 @@ export type PlayerColor = 'red' | 'blue' | 'yellow' | 'green';
 export interface Token {
   id: string;
   color: PlayerColor;
-  position: number; // 0-67 for main board, -1 for home, 68-75 for final path, 76 for goal
+  position: number; // -1 = home, 1-68 main board, 69-75 final path, 76 = goal
   isSafe: boolean;
 }
 
@@ -26,9 +26,11 @@ export interface GameState {
   }[];
   currentTurn: PlayerColor;
   lastDiceRoll: [number, number] | null;
+  remainingDice: number[]; // Individual dice values still to be used this turn
   status: 'waiting' | 'playing' | 'finished';
-  bonusSteps: number; // For 20 steps (capture) or 10 steps (goal)
-  extraTurns: number; // For rolling a 6
-  consecutiveSixes: number; // To handle the "3 sixes in a row" rule
+  bonusSteps: number; // 20 for capture, 10 for reaching goal
+  consecutiveDoubles: number; // 3 doubles in a row = penalty
+  mustBreakBarrier?: boolean;
+  turnTimerVersion?: number;
   roomId: string;
 }

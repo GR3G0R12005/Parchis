@@ -20,10 +20,14 @@ export const HUD: React.FC<{
   currentUserId?: string;
   onRoll?: (values: [number, number]) => void;
   lastDiceRoll?: [number, number] | null;
+  remainingDice?: number[];
   currentTurn?: string | null;
   myColor?: string | null;
   onSurrender?: () => void;
-}> = ({ view = 'game', onShopClick, onProfileClick, user, players = [], currentUserId, onRoll, lastDiceRoll, currentTurn, myColor, onSurrender }) => {
+  onPassDie?: (dieValue: number) => void;
+  turnProgress?: number;
+  turnSecondsLeft?: number;
+}> = ({ view = 'game', onShopClick, onProfileClick, user, players = [], currentUserId, onRoll, lastDiceRoll, remainingDice = [], currentTurn, myColor, onSurrender, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
 
   const otherPlayers = players.filter(p => String(p.id) !== String(currentUserId));
   const currentPlayer = players.find(p => String(p.id) === String(currentUserId));
@@ -92,11 +96,15 @@ export const HUD: React.FC<{
               color={currentPlayer?.color || 'red'}
               isTurn={currentPlayer?.isTurn || false}
               isMyDice={true}
-              canRoll={currentTurn === myColor}
+              canRoll={currentTurn === myColor && remainingDice.length === 0 && !lastDiceRoll}
               diceValues={currentPlayer?.isTurn ? lastDiceRoll : null}
+              remainingDice={currentPlayer?.isTurn ? remainingDice : []}
               onRoll={onRoll}
+              onPassDie={onPassDie}
               diceAlign="left"
               onAvatarClick={onProfileClick}
+              timerProgress={currentPlayer?.isTurn ? turnProgress : 1}
+              timerSecondsLeft={currentPlayer?.isTurn ? turnSecondsLeft : undefined}
             />
           </div>
           {/* Other Players */}
@@ -112,7 +120,10 @@ export const HUD: React.FC<{
                   isMyDice={false}
                   canRoll={false}
                   diceValues={player.isTurn ? lastDiceRoll : null}
+                  remainingDice={player.isTurn ? remainingDice : []}
                   diceAlign={otherPositions[idx].diceAlign}
+                  timerProgress={player.isTurn ? turnProgress : 1}
+                  timerSecondsLeft={player.isTurn ? turnSecondsLeft : undefined}
                 />
               </div>
             );
@@ -132,25 +143,38 @@ const PlayerWithDice: React.FC<{
   isMyDice: boolean;
   canRoll: boolean;
   diceValues: [number, number] | null | undefined;
+  remainingDice: number[];
   onRoll?: (values: [number, number]) => void;
+  onPassDie?: (dieValue: number) => void;
   diceAlign: 'left' | 'right';
   onAvatarClick?: () => void;
-}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, onRoll, diceAlign, onAvatarClick }) => {
+  timerProgress?: number;
+  timerSecondsLeft?: number;
+}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onPassDie, diceAlign, onAvatarClick, timerProgress = 1, timerSecondsLeft }) => {
   return (
     <div className={cn(
       "flex items-center gap-3",
       diceAlign === 'right' && "flex-row-reverse"
-    )}>
+      )}>
       {/* Avatar */}
       <div onClick={onAvatarClick} className={cn("cursor-pointer", onAvatarClick && "hover:scale-105 active:scale-95 transition-transform")}>
-        <Avatar name={name} image={image} active={isTurn} color={color} />
+        <Avatar
+          name={name}
+          image={image}
+          active={isTurn}
+          color={color}
+          turnProgress={timerProgress}
+          turnSecondsLeft={timerSecondsLeft}
+        />
       </div>
       {/* Dice */}
       <MiniDice
         values={diceValues || [1, 1]}
         isTurn={isTurn}
         canRoll={isMyDice && canRoll}
+        remainingDice={remainingDice}
         onRoll={onRoll}
+        onPassDie={isMyDice ? onPassDie : undefined}
       />
     </div>
   );
@@ -161,12 +185,13 @@ const MiniDice: React.FC<{
   values: [number, number];
   isTurn: boolean;
   canRoll: boolean;
+  remainingDice: number[];
   onRoll?: (values: [number, number]) => void;
-}> = ({ values, isTurn, canRoll, onRoll }) => {
+  onPassDie?: (dieValue: number) => void;
+}> = ({ values, isTurn, canRoll, remainingDice, onRoll, onPassDie }) => {
   const [rolling, setRolling] = useState(false);
   const [displayValues, setDisplayValues] = useState<[number, number]>(values);
 
-  // Sync display values when props change (other player rolled)
   React.useEffect(() => {
     if (!rolling) {
       setDisplayValues(values);
@@ -210,33 +235,48 @@ const MiniDice: React.FC<{
         ? "bg-black/30 border-yellow-500/40 shadow-[0_0_15px_rgba(234,179,8,0.2)]"
         : "bg-black/20 border-white/5 opacity-40 scale-90"
     )}>
-      {[0, 1].map((idx) => (
-        <motion.div
-          key={idx}
-          whileHover={!disabled ? { scale: 1.1 } : {}}
-          whileTap={!disabled ? { scale: 0.85 } : {}}
-          onClick={rollDice}
-          className={cn(
-            "w-10 h-10 rounded-lg bg-white flex items-center justify-center shadow-md relative overflow-hidden",
-            disabled && "cursor-default",
-            !disabled && "cursor-pointer",
-            rolling && "animate-bounce"
-          )}
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-100 to-slate-300" />
-          <div className="absolute inset-[1px] border border-white/50 rounded-[7px]" />
-          <div className="relative grid grid-cols-3 grid-rows-3 gap-[1px] p-1.5 w-full h-full">
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => {
-              const show = shouldShowDot(displayValues[idx], i);
-              return (
-                <div key={i} className="flex items-center justify-center">
-                  {show && <div className="w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner" />}
-                </div>
-              );
-            })}
-          </div>
-        </motion.div>
-      ))}
+      {[0, 1].map((idx) => {
+        const dieVal = displayValues[idx];
+        const isUsed = isTurn && remainingDice.length > 0 && !remainingDice.includes(values[idx]);
+        // Check if this specific die index is used (handle doubles correctly)
+        const usedCount = values.filter(v => !remainingDice.includes(v)).length;
+        const isDieUsed = isTurn && remainingDice.length > 0 && remainingDice.length < 2 &&
+          (remainingDice[0] !== values[idx] || (idx === 1 && remainingDice.length === 1 && remainingDice[0] === values[0]));
+
+        return (
+          <motion.div
+            key={idx}
+            whileHover={!disabled ? { scale: 1.1 } : {}}
+            whileTap={!disabled ? { scale: 0.85 } : {}}
+            onClick={rollDice}
+            className={cn(
+              "w-10 h-10 rounded-lg bg-white flex items-center justify-center shadow-md relative overflow-hidden",
+              disabled && "cursor-default",
+              !disabled && "cursor-pointer",
+              rolling && "animate-bounce",
+              isUsed && "opacity-30 scale-90"
+            )}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-slate-100 to-slate-300" />
+            <div className="absolute inset-[1px] border border-white/50 rounded-[7px]" />
+            <div className="relative grid grid-cols-3 grid-rows-3 gap-[1px] p-1.5 w-full h-full">
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => {
+                const show = shouldShowDot(dieVal, i);
+                return (
+                  <div key={i} className="flex items-center justify-center">
+                    {show && <div className="w-1.5 h-1.5 bg-slate-700 rounded-full shadow-inner" />}
+                  </div>
+                );
+              })}
+            </div>
+            {isUsed && (
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <span className="text-white text-xs font-black">✓</span>
+              </div>
+            )}
+          </motion.div>
+        );
+      })}
     </div>
   );
 };
@@ -255,10 +295,17 @@ function shouldShowDot(value: number, index: number) {
 
 // --- Color mappings ---
 const COLOR_RING: Record<string, string> = {
-  red: 'ring-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]',
-  blue: 'ring-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.4)]',
-  yellow: 'ring-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.4)]',
-  green: 'ring-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)]',
+  red: 'shadow-[0_0_15px_rgba(239,68,68,0.45)]',
+  blue: 'shadow-[0_0_15px_rgba(59,130,246,0.45)]',
+  yellow: 'shadow-[0_0_15px_rgba(234,179,8,0.45)]',
+  green: 'shadow-[0_0_15px_rgba(34,197,94,0.45)]',
+};
+
+const COLOR_HEX: Record<string, string> = {
+  red: '#ef4444',
+  blue: '#3b82f6',
+  yellow: '#facc15',
+  green: '#22c55e',
 };
 
 const COLOR_DOT: Record<string, string> = {
@@ -276,30 +323,44 @@ const COLOR_LABEL: Record<string, string> = {
 };
 
 // --- Avatar ---
-const Avatar: React.FC<{ name: string; image: string; active?: boolean; color?: string }> = ({ name, image, active, color }) => (
-  <div className="flex flex-col items-center gap-2">
-    <div className={cn(
-      "w-16 h-16 md:w-20 md:h-20 rounded-full p-1 relative ring-3",
-      color ? COLOR_RING[color] : "ring-white/20",
-      active && "scale-110"
-    )}>
-      <div className="w-full h-full rounded-full border-2 border-white/30 overflow-hidden shadow-inner bg-slate-800">
-        <img src={image} alt={name} className="w-full h-full object-cover" />
-      </div>
-      {/* Color dot indicator */}
-      {color && (
-        <div className={cn("absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-2 border-white", COLOR_DOT[color])} />
-      )}
-      {/* Turn indicator */}
-      {active && (
-        <div className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-400 rounded-full border-2 border-white flex items-center justify-center animate-pulse">
-          <span className="text-[8px] font-black text-slate-900">!</span>
+const Avatar: React.FC<{
+  name: string;
+  image: string;
+  active?: boolean;
+  color?: string;
+  turnProgress?: number;
+  turnSecondsLeft?: number;
+}> = ({ name, image, active, color, turnProgress = 1, turnSecondsLeft }) => {
+  const progress = Math.max(0, Math.min(1, turnProgress));
+  const progressDeg = progress * 360;
+  const ringColor = color ? COLOR_HEX[color] : '#ffffff';
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className={cn(
+          "w-16 h-16 md:w-20 md:h-20 rounded-full p-[3px] relative transition-transform",
+          color ? COLOR_RING[color] : "shadow-[0_0_10px_rgba(255,255,255,0.2)]",
+          active && "scale-110"
+        )}
+        style={{ background: `conic-gradient(${ringColor} ${progressDeg}deg, rgba(255,255,255,0.16) ${progressDeg}deg 360deg)` }}
+      >
+        <div className="w-full h-full rounded-full border-2 border-white/30 overflow-hidden shadow-inner bg-slate-800">
+          <img src={image} alt={name} className="w-full h-full object-cover" />
         </div>
-      )}
+        {color && (
+          <div className={cn("absolute -bottom-1 left-1/2 -translate-x-1/2 w-4 h-4 rounded-full border-2 border-white", COLOR_DOT[color])} />
+        )}
+        {active && (
+          <div className="absolute -top-1 -right-1 min-w-5 h-5 px-1 bg-yellow-400 rounded-full border-2 border-white flex items-center justify-center animate-pulse">
+            <span className="text-[8px] font-black text-slate-900">{turnSecondsLeft ?? 0}</span>
+          </div>
+        )}
+      </div>
+      <span className={cn(
+        "text-white font-bold text-xs drop-shadow-md px-2 py-0.5 rounded-full",
+        color ? COLOR_LABEL[color] : "bg-black/20"
+      )}>{name}</span>
     </div>
-    <span className={cn(
-      "text-white font-bold text-xs drop-shadow-md px-2 py-0.5 rounded-full",
-      color ? COLOR_LABEL[color] : "bg-black/20"
-    )}>{name}</span>
-  </div>
-);
+  );
+};

@@ -10,16 +10,6 @@ interface BoardProps {
   highlightedPositions?: number[];
 }
 
-const COLORS = {
-  red: '#FF4D6D',
-  yellow: '#FFEA00',
-  green: '#00E676',
-  blue: '#2979FF',
-  white: '#FFFFFF',
-  black: '#000000',
-  border: '#333333'
-};
-
 export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [] }) => {
   const GRID_SIZE = 17;
 
@@ -31,25 +21,30 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
     let point: Point;
     const tokensAtThisPos = getTokensAtPos(token.position, token.color);
     const tokenIndex = tokensAtThisPos.findIndex(t => t.id === token.id);
-    const isBlockade = tokensAtThisPos.length > 1;
+    const stackSize = tokensAtThisPos.length;
 
     if (token.position === -1) {
       point = getHomeCoords(token.color, tokenIndex);
-    } else if (token.position >= 68) {
+    } else if (token.position > 68) {
       point = getFinalPathCoords(token.color, token.position);
     } else {
       point = getSquareCoords(token.position);
     }
 
-    const offsetX = isBlockade ? (tokenIndex === 0 ? -25 : 25) : 0;
-    const scale = isBlockade ? 0.75 : 0.9;
+    const stackOffsetsByCount: Record<number, Array<{ x: number; y: number }>> = {
+      2: [{ x: -24, y: 0 }, { x: 24, y: 0 }],
+      3: [{ x: -24, y: -18 }, { x: 24, y: -18 }, { x: 0, y: 20 }],
+      4: [{ x: -24, y: -24 }, { x: 24, y: -24 }, { x: -24, y: 24 }, { x: 24, y: 24 }],
+    };
+    const offset = stackOffsetsByCount[stackSize]?.[tokenIndex] || { x: 0, y: 0 };
+    const scale = stackSize > 1 ? 0.78 : 0.9;
 
     return {
       left: `${(point.x / GRID_SIZE) * 100}%`,
       top: `${(point.y / GRID_SIZE) * 100}%`,
       width: `${(1 / GRID_SIZE) * 100}%`,
       height: `${(1 / GRID_SIZE) * 100}%`,
-      transform: `translate(${offsetX}%, 0) scale(${scale})`,
+      transform: `translate(${offset.x}%, ${offset.y}%) scale(${scale})`,
       zIndex: 40 + tokenIndex,
     };
   };
@@ -58,90 +53,15 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="relative w-[min(95vw,95vh,800px)] aspect-square bg-[#BBBBBB] rounded-2xl p-2 md:p-6 shadow-2xl flex items-center justify-center overflow-hidden"
+      className="relative w-[min(95vw,95vh,800px)] aspect-square rounded-2xl p-2 md:p-4 shadow-2xl flex items-center justify-center overflow-hidden bg-black/30"
     >
-      <div className="relative w-full h-full bg-white rounded shadow-inner border-[1px] border-black/30 grid grid-cols-17 grid-rows-17 overflow-hidden">
-
-        {/* Home Areas (7x7) */}
-        <HomeArea color="red" className="col-start-1 col-end-8 row-start-1 row-end-8" />
-        <HomeArea color="yellow" className="col-start-11 col-end-18 row-start-1 row-end-8" />
-        <HomeArea color="green" className="col-start-1 col-end-8 row-start-11 row-end-18" />
-        <HomeArea color="blue" className="col-start-11 col-end-18 row-start-11 row-end-18" />
-
-        {/* Path Rendering */}
-        <div className="absolute inset-0 grid grid-cols-17 grid-rows-17 pointer-events-none">
-          {Array.from({ length: 68 }).map((_, i) => {
-            const pos = i + 1;
-            const point = getSquareCoords(pos);
-
-            // Refined safe squares for 17x17 shifted mapping (Red Salida = 1)
-            const safeSquares = [1, 8, 13, 18, 25, 30, 35, 42, 47, 52, 59, 64, 68];
-            const exits = [1, 18, 35, 52];
-            const isSafe = safeSquares.includes(pos);
-            const isExit = exits.includes(pos);
-
-            const colorMap = {
-              1: COLORS.red,
-              18: COLORS.yellow,
-              35: COLORS.blue,
-              52: COLORS.green
-            };
-
-            return (
-              <div
-                key={pos}
-                className={cn(
-                  "border-[0.5px] border-black/10 flex items-center justify-center relative bg-white",
-                  isExit ? "" : "" // Logic in style for precision
-                )}
-                style={{
-                  gridColumnStart: point.x + 1,
-                  gridRowStart: point.y + 1,
-                  backgroundColor: isExit ? colorMap[pos as keyof typeof colorMap] : '#FFFFFF'
-                }}
-              >
-                {/* Safe Square Circle (Matches imagenes/parchis.jpg) */}
-                {isSafe && (
-                  <div className="w-2/3 h-2/3 rounded-full border-[1px] border-black/20 bg-white/90 shadow-sm" />
-                )}
-                {/* Optional subtle position number */}
-                {/* <span className="text-[8px] absolute bottom-0 right-0 text-gray-200">{pos}</span> */}
-              </div>
-            );
-          })}
-
-          {/* Goal Lanes */}
-          {['red', 'yellow', 'blue', 'green'].map((color) =>
-            Array.from({ length: 8 }).map((_, i) => {
-              const pos = 69 + i;
-              const point = getFinalPathCoords(color as PlayerColor, pos);
-              const colorMap = { red: COLORS.red, yellow: COLORS.yellow, green: COLORS.green, blue: COLORS.blue };
-              return (
-                <div
-                  key={`${color}-${i}`}
-                  className="border-[0.5px] border-black/10"
-                  style={{
-                    gridColumnStart: point.x + 1,
-                    gridRowStart: point.y + 1,
-                    backgroundColor: colorMap[color as PlayerColor]
-                  }}
-                />
-              );
-            })
-          )}
-        </div>
-
-        {/* Goal Area (3x3 Center) */}
-        <div className="col-start-8 col-end-11 row-start-8 row-end-11 relative overflow-hidden bg-white border-[0.5px] border-black/10">
-          <svg viewBox="0 0 100 100" className="w-full h-full">
-            <polygon points="50,50 0,0 100,0" fill={COLORS.yellow} />
-            <polygon points="50,50 100,0 100,100" fill={COLORS.blue} />
-            <polygon points="50,50 100,100 0,100" fill={COLORS.green} />
-            <polygon points="50,50 0,100 0,0" fill={COLORS.red} />
-            <line x1="0" y1="0" x2="100" y2="100" stroke="black" strokeWidth="0.2" opacity="0.1" />
-            <line x1="100" y1="0" x2="0" y2="100" stroke="black" strokeWidth="0.2" opacity="0.1" />
-          </svg>
-        </div>
+      <div className="relative w-full h-full rounded shadow-inner border-[1px] border-black/40 overflow-hidden">
+        <img
+          src="/assets/parchis.jpg"
+          alt="Parchis board"
+          className="absolute inset-0 w-full h-full object-cover pointer-events-none select-none"
+          draggable={false}
+        />
 
         {/* Tokens Layer */}
         <div className="absolute inset-0 pointer-events-none">
@@ -157,7 +77,7 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
 
         {/* Highlights */}
         {highlightedPositions.map((pos, idx) => {
-          const point = pos >= 68 ? getFinalPathCoords(tokens[0]?.color || 'red', pos) : getSquareCoords(pos);
+          const point = pos > 68 ? getFinalPathCoords(tokens[0]?.color || 'red', pos) : getSquareCoords(pos);
           return (
             <div
               key={idx}
@@ -174,27 +94,6 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
         })}
       </div>
     </motion.div>
-  );
-};
-
-const HomeArea: React.FC<{ color: PlayerColor; className?: string }> = ({ color, className }) => {
-  const colorMap = {
-    red: COLORS.red,
-    yellow: COLORS.yellow,
-    green: COLORS.green,
-    blue: COLORS.blue
-  };
-
-  return (
-    <div className={cn(className, "relative p-4 md:p-10 border-[0.5px] border-black/20")}>
-      <div className="w-full h-full relative" style={{ backgroundColor: colorMap[color] }}>
-        <div className="grid grid-cols-2 grid-rows-2 gap-4 md:gap-12 p-4 md:p-8 w-full h-full">
-          {[0, 1, 2, 3].map(i => (
-            <div key={i} className="rounded-full border-[3px] border-black/20 bg-black/5 aspect-square" />
-          ))}
-        </div>
-      </div>
-    </div>
   );
 };
 
