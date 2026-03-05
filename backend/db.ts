@@ -63,6 +63,19 @@ export const dbService = {
         db.prepare('UPDATE users SET avatar = ? WHERE uid = ?').run(avatar, uid);
     },
 
+    adjustUserCoins: (uid: string, delta: number): number => {
+        db.prepare(`
+            UPDATE users
+            SET coins = CASE
+                WHEN coins + ? < 0 THEN 0
+                ELSE coins + ?
+            END
+            WHERE uid = ?
+        `).run(delta, delta, uid);
+        const row = db.prepare('SELECT coins FROM users WHERE uid = ?').get(uid) as { coins: number } | undefined;
+        return row?.coins ?? 0;
+    },
+
     searchUsers: (query: string, excludeUid: string): UserProfile[] => {
         return db.prepare('SELECT * FROM users WHERE username LIKE ? AND uid != ? LIMIT 10').all(
             `%${query}%`, excludeUid

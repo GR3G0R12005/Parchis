@@ -98,14 +98,15 @@ async function startServer() {
   const FINAL_PATH_LENGTH = 7; // 7 squares in final corridor (positions 69-75)
   const GOAL_POSITION = 76;
   const HOME_POSITION = -1;
+  const COINS_PER_DEFEATED_PLAYER = 100;
 
   // Exit positions per color (where tokens enter the main board)
   const EXIT_POSITIONS: Record<string, number> = {
     green: 1, yellow: 18, blue: 35, red: 52
   };
 
-  // Safe squares: 4 exits + 8 marked safe squares
-  const SAFE_SQUARES = [1, 5, 12, 18, 22, 29, 35, 39, 46, 52, 56, 63];
+  // Safe squares confirmed visually: exits + stars + final entries
+  const SAFE_SQUARES = [1, 8, 13, 18, 25, 30, 35, 42, 47, 52, 58, 64];
 
   // Entry to final path: square just before entering the corridor
   // Each color enters after completing ~63 squares from their exit
@@ -354,6 +355,51 @@ async function startServer() {
     }
   };
 
+  const autoPassIfNoValidMove = (room: any): boolean => {
+    if (!room?.gameState) return false;
+    const state = room.gameState;
+    if (state.status !== "playing") return false;
+    if (state.bonusSteps > 0 || state.remainingDice.length === 0) return false;
+
+    const hasPlayableDie = state.remainingDice.some((die: number) => (
+      state.mustBreakBarrier
+        ? canBreakBarrierWithDie(state, state.currentTurn, die)
+        : hasAnyValidMove(state, die, state.currentTurn, state.remainingDice)
+    ));
+
+    if (hasPlayableDie) return false;
+
+    const [d1, d2] = state.lastDiceRoll || [0, 0];
+    const isDoubles = d1 === d2;
+    state.remainingDice = [];
+    finishDiceUsage(room, isDoubles);
+    return true;
+  };
+
+  const emitGameWon = (room: any, roomId: string, winnerColor: string, winnerUid?: string, reason?: string) => {
+    const statePlayers = (room.gameState?.players || []).map((p: any) => ({ uid: p.id, color: p.color }));
+    const roomPlayers = (room.players || []).map((p: any) => ({ uid: p.uid, color: p.color }));
+    const participantsByUid = new Map<string, { uid: string; color: string }>();
+    for (const p of [...statePlayers, ...roomPlayers]) {
+      if (!p?.uid) continue;
+      participantsByUid.set(p.uid, p);
+    }
+    const participants = [...participantsByUid.values()];
+    const resolvedWinnerUid = winnerUid || participants.find((p) => p.color === winnerColor)?.uid;
+    const losers = participants.filter((p) => p.uid !== resolvedWinnerUid);
+    const winnerReward = COINS_PER_DEFEATED_PLAYER * losers.length;
+    const coinChanges: Record<string, { delta: number; coins: number }> = {};
+
+    for (const participant of participants) {
+      if (!participant.uid) continue;
+      const delta = participant.uid === resolvedWinnerUid ? winnerReward : -COINS_PER_DEFEATED_PLAYER;
+      const coins = dbService.adjustUserCoins(participant.uid, delta);
+      coinChanges[participant.uid] = { delta, coins };
+    }
+
+    io.to(roomId).emit("game-won", { winnerColor, winnerUid: resolvedWinnerUid, reason, coinChanges });
+  };
+
   const createInitialState = (room: any) => {
     const players = room.players.map((p: any, idx: number) => {
       const user = dbService.getUserByUid(p.uid);
@@ -497,7 +543,7 @@ async function startServer() {
         currentP.score++;
         if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
           const winner = room.players.find((p: any) => p.color === freshState.currentTurn);
-          io.to(roomId).emit("game-won", { winnerColor: freshState.currentTurn, winnerUid: winner?.uid });
+          emitGameWon(room, roomId, freshState.currentTurn, winner?.uid);
           freshState.status = "finished";
           room.status = "finished";
           io.to(roomId).emit("room-update", freshState);
@@ -606,7 +652,7 @@ async function startServer() {
       currentP.score++;
       if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
         const winner = room.players.find((p: any) => p.color === freshState.currentTurn);
-        io.to(roomId).emit("game-won", { winnerColor: freshState.currentTurn, winnerUid: winner?.uid });
+        emitGameWon(room, roomId, freshState.currentTurn, winner?.uid);
         freshState.status = "finished";
         room.status = "finished";
         io.to(roomId).emit("room-update", freshState);
@@ -836,7 +882,7 @@ async function startServer() {
         if (newPos === GOAL_POSITION) {
           currentP.score++;
           if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
-            io.to(roomId).emit("game-won", { winnerColor: state.currentTurn, winnerUid: movingPlayer.uid });
+            emitGameWon(room, roomId, state.currentTurn, movingPlayer.uid);
             state.status = "finished";
             room.status = "finished";
             io.to(roomId).emit("room-update", state);
@@ -858,6 +904,7 @@ async function startServer() {
 
         // Bonus used, check if dice still remaining
         if (state.remainingDice.length > 0) {
+          autoPassIfNoValidMove(room);
           io.to(roomId).emit("room-update", state);
           return;
         }
@@ -905,6 +952,8 @@ async function startServer() {
         // If no more dice to use, finish
         if (state.remainingDice.length === 0) {
           finishDiceUsage(room, isDoubles);
+        } else {
+          autoPassIfNoValidMove(room);
         }
         io.to(roomId).emit("room-update", state);
         return;
@@ -930,7 +979,7 @@ async function startServer() {
       if (newPos === GOAL_POSITION) {
         currentP.score++;
         if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
-          io.to(roomId).emit("game-won", { winnerColor: state.currentTurn, winnerUid: movingPlayer.uid });
+          emitGameWon(room, roomId, state.currentTurn, movingPlayer.uid);
           state.status = "finished";
           room.status = "finished";
           io.to(roomId).emit("room-update", state);
@@ -953,6 +1002,8 @@ async function startServer() {
       // If no more dice, finish
       if (state.remainingDice.length === 0) {
         finishDiceUsage(room, isDoubles);
+      } else {
+        autoPassIfNoValidMove(room);
       }
       io.to(roomId).emit("room-update", state);
     });
@@ -975,14 +1026,16 @@ async function startServer() {
 
       const dieIdx = state.remainingDice.indexOf(dieValue);
       state.remainingDice.splice(dieIdx, 1);
+      let turnResolved = false;
       if (state.remainingDice.length > 0) {
         resetTurnTimer(state);
+        turnResolved = autoPassIfNoValidMove(room);
       }
 
       const [d1, d2] = state.lastDiceRoll || [0, 0];
       const isDoubles = d1 === d2;
 
-      if (state.remainingDice.length === 0) {
+      if (!turnResolved && state.remainingDice.length === 0) {
         finishDiceUsage(room, isDoubles);
       }
       io.to(roomId).emit("room-update", state);
@@ -1093,7 +1146,7 @@ async function startServer() {
       if (room.players.length <= 1) {
         if (room.players.length === 1) {
           const winner = room.players[0];
-          io.to(roomId).emit("game-won", { winnerColor: winner.color, winnerUid: winner.uid, reason: "surrender" });
+          emitGameWon(room, roomId, winner.color, winner.uid, "surrender");
         }
         room.status = "finished";
         if (room.gameState) room.gameState.status = "finished";
@@ -1149,7 +1202,7 @@ async function startServer() {
             if (currentRoom.players.length <= 1) {
               if (currentRoom.players.length === 1) {
                 const winner = currentRoom.players[0];
-                io.to(roomId).emit("game-won", { winnerColor: winner.color, winnerUid: winner.uid, reason: "surrender" });
+                emitGameWon(currentRoom, roomId, winner.color, winner.uid, "surrender");
               }
               currentRoom.status = "finished";
               if (currentRoom.gameState) currentRoom.gameState.status = "finished";

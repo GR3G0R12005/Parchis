@@ -35,10 +35,10 @@ export const getSquareCoords = (pos: number): Point => {
 export const getHomeCoords = (color: PlayerColor, index: number): Point => {
   // Position tokens in home circles (initial positions on the board)
   const homes: Record<PlayerColor, [number, number][]> = {
-    green:  [[2.5, 2.5], [4.5, 2.5], [2.5, 4.5], [4.5, 4.5]],
-    red:    [[12.5, 2.5], [14.5, 2.5], [12.5, 4.5], [14.5, 4.5]],
+    green: [[2.5, 2.5], [4.5, 2.5], [2.5, 4.5], [4.5, 4.5]],
+    red: [[12.5, 2.5], [14.5, 2.5], [12.5, 4.5], [14.5, 4.5]],
     yellow: [[2.5, 12.5], [4.5, 12.5], [2.5, 14.5], [4.5, 14.5]],
-    blue:   [[12.5, 12.5], [14.5, 12.5], [12.5, 14.5], [14.5, 14.5]],
+    blue: [[12.5, 12.5], [14.5, 12.5], [12.5, 14.5], [14.5, 14.5]],
   };
   const [x, y] = homes[color][index % 4];
   return { x, y };
@@ -57,4 +57,16 @@ export const getFinalPathCoords = (color: PlayerColor, pos: number): Point => {
   const idx = Math.max(0, Math.min(lane.length - 1, pos - 69));
   const [x, z] = lane[idx];
   return mapBoardPoint(x, z);
+};
+
+export const getSquareOrientation = (pos: number, color?: PlayerColor): 'horizontal' | 'vertical' => {
+  if (pos === -1) return 'horizontal';
+  if (pos > 68) {
+    if (color === 'red' || color === 'yellow') return 'horizontal';
+    return 'vertical';
+  }
+
+  const verticalRanges = [[1, 4], [13, 14], [22, 29], [31, 38], [47, 48], [56, 63], [65, 68]];
+  if (verticalRanges.some(([start, end]) => pos >= start && pos <= end)) return 'vertical';
+  return 'horizontal';
 };

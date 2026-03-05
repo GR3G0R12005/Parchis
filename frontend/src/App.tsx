@@ -51,6 +51,13 @@ interface GameSession {
   uid: string;
 }
 
+interface GameResultModalState {
+  winnerColor: string;
+  didWin: boolean;
+  coinDelta: number;
+  currentCoins?: number;
+}
+
 const saveSession = (session: GameSession) => {
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
 };
@@ -91,7 +98,7 @@ export default function App() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [pendingRejoin, setPendingRejoin] = useState<GameSession | null>(null);
   const [turnSecondsLeft, setTurnSecondsLeft] = useState(TURN_DURATION_SECONDS);
-  const [showSurrenderWinModal, setShowSurrenderWinModal] = useState(false);
+  const [gameResultModal, setGameResultModal] = useState<GameResultModalState | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -102,8 +109,8 @@ export default function App() {
     green: 1, yellow: 18, blue: 35, red: 52
   };
 
-  // Track which die the player wants to use (for split dice)
-  const [selectedDie, setSelectedDie] = useState<number | null>(null);
+  // Token waiting for die selection (popup)
+  const [pendingToken, setPendingToken] = useState<Token | null>(null);
 
   // Auth Listener (Shared/Local)
   useEffect(() => {
@@ -161,13 +168,27 @@ export default function App() {
       showToast(`${username || color.toUpperCase()} se rindió.`, 'error');
     });
 
-    newSocket.on('game-won', ({ winnerColor, winnerUid, reason }: { winnerColor: string; winnerUid?: string; reason?: string }) => {
-      if (reason === 'surrender' && winnerUid === currentUser.uid) {
-        showToast('¡Ganaste! Los demás se rindieron.', 'success');
-        setShowSurrenderWinModal(true);
-      } else {
-        showToast(`${winnerColor.toUpperCase()} wins the game!`, 'success');
+    newSocket.on('game-won', ({
+      winnerColor,
+      winnerUid,
+      coinChanges,
+    }: {
+      winnerColor: string;
+      winnerUid?: string;
+      coinChanges?: Record<string, { delta: number; coins: number }>;
+    }) => {
+      const didWin = winnerUid === currentUser?.uid;
+      const myCoinChange = coinChanges?.[currentUser?.uid ?? ''];
+      if (typeof myCoinChange?.coins === 'number') {
+        setCurrentUser((prev) => prev ? { ...prev, coins: myCoinChange.coins } : prev);
       }
+      showToast(didWin ? 'You Win!' : 'Game Over', didWin ? 'success' : 'error');
+      setGameResultModal({
+        winnerColor,
+        didWin,
+        coinDelta: myCoinChange?.delta ?? 0,
+        currentCoins: myCoinChange?.coins,
+      });
       clearSession();
     });
 
@@ -283,7 +304,7 @@ export default function App() {
 
   const handleRollDice = (values: [number, number]) => {
     if (!roomCode) return;
-    setSelectedDie(null);
+    setPendingToken(null);
     socket?.emit('roll-dice', { roomId: roomCode, values });
   };
 
@@ -293,50 +314,51 @@ export default function App() {
     const bonus = gameState.bonusSteps || 0;
     const canExitBySumFive = remaining.length === 2 && (remaining[0] + remaining[1] === 5);
 
-    // If bonus steps, just move (no die selection needed)
+    // Close popup if clicking same token again
+    if (pendingToken?.id === token.id) {
+      setPendingToken(null);
+      return;
+    }
+
+    // Bonus steps: move directly
     if (bonus > 0) {
+      setPendingToken(null);
       socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: bonus });
       return;
     }
 
-    // If only one die remaining, use it automatically
+    // One die: move directly
     if (remaining.length === 1) {
+      setPendingToken(null);
       socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: remaining[0] });
       return;
     }
 
-    // If both dice are the same (doubles), use either
+    // Doubles: move directly
     if (remaining.length === 2 && remaining[0] === remaining[1]) {
+      setPendingToken(null);
       socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: remaining[0] });
       return;
     }
 
-    // If a die is pre-selected, use it
-    if (selectedDie !== null && remaining.includes(selectedDie)) {
-      if (token.position === -1 && selectedDie !== 5 && (remaining.includes(5) || canExitBySumFive)) {
-        socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
-        setSelectedDie(null);
-        return;
-      }
-      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: selectedDie });
-      setSelectedDie(null);
+    // Exit from home with sum 5: move directly
+    if (remaining.length === 2 && token.position === -1 && canExitBySumFive) {
+      setPendingToken(null);
+      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
       return;
     }
 
-    // Two different dice remaining: player chooses exact die value
+    // Two different dice: show popup above token
     if (remaining.length === 2) {
-      if (token.position === -1 && (remaining.includes(5) || canExitBySumFive)) {
-        socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
-        return;
-      }
-      if (selectedDie === null || !remaining.includes(selectedDie)) {
-        setSelectedDie(remaining[0]);
-        return;
-      }
-      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: selectedDie });
-      setSelectedDie(null);
+      setPendingToken(token);
       return;
     }
+  };
+
+  const handleDieSelect = (die: number) => {
+    if (!roomCode || !pendingToken) return;
+    socket?.emit('move-token', { roomId: roomCode, tokenId: pendingToken.id, dieValue: die });
+    setPendingToken(null);
   };
 
   const handlePassDie = (dieValue: number) => {
@@ -363,7 +385,7 @@ export default function App() {
     setGameState(null);
     setMyColor(null);
     setView('lobby');
-    setShowSurrenderWinModal(false);
+    setGameResultModal(null);
   };
 
   const handleLogout = () => {
@@ -373,7 +395,7 @@ export default function App() {
     setCurrentUser(null);
     setActiveModal(null);
     setActiveTab('home');
-    setShowSurrenderWinModal(false);
+    setGameResultModal(null);
   };
 
   const handleSurrender = () => {
@@ -387,7 +409,7 @@ export default function App() {
     setView('lobby');
     setActiveModal(null);
     setActiveTab('home');
-    setShowSurrenderWinModal(false);
+    setGameResultModal(null);
   };
 
   const handleRejoinGame = () => {
@@ -756,6 +778,9 @@ export default function App() {
                   tokens={gameState?.players.flatMap(p => p.tokens) || []}
                   onTokenClick={handleTokenClick}
                   highlightedPositions={getHighlightedPositions()}
+                  pendingToken={pendingToken}
+                  pendingDice={gameState?.remainingDice || []}
+                  onDieSelect={handleDieSelect}
                 />
 
                 {/* Bottom player row: yellow (left), blue (right) */}
@@ -778,31 +803,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Die Selector: shown when 2 different dice remain and it's my turn */}
-              {gameState?.currentTurn === myColor && (gameState?.remainingDice?.length || 0) === 2 &&
-                gameState?.remainingDice?.[0] !== gameState?.remainingDice?.[1] && (gameState?.bonusSteps || 0) === 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="absolute bottom-28 sm:bottom-28 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-xl border border-white/20 rounded-2xl px-4 py-3 flex items-center gap-3 z-50"
-                >
-                  <span className="text-white/60 text-xs font-bold uppercase tracking-widest">Usar dado:</span>
-                  {gameState.remainingDice.map((die, idx) => (
-                    <motion.button
-                      key={idx}
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => setSelectedDie(die)}
-                      className={cn(
-                        "w-10 h-10 rounded-lg bg-white text-slate-900 flex items-center justify-center shadow-md font-black text-lg transition-all",
-                        selectedDie === die ? "ring-2 ring-yellow-500 scale-110" : "opacity-60"
-                      )}
-                    >
-                      {die}
-                    </motion.button>
-                  ))}
-                </motion.div>
-              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -1003,10 +1003,20 @@ export default function App() {
         </div>
       </Modal>
 
-      <Modal isOpen={showSurrenderWinModal} onClose={() => setShowSurrenderWinModal(false)} title="¡Ganaste!">
+      <Modal isOpen={!!gameResultModal} onClose={handleLeaveRoom} title={gameResultModal?.didWin ? "You Win" : "Game Over"}>
         <div className="space-y-6 text-center">
-          <p className="text-white/90 font-bold text-lg">Eres el único jugador restante.</p>
-          <p className="text-white/60 text-sm">Todos los demás jugadores se rindieron.</p>
+          <p className="text-white/90 font-bold text-2xl">
+            {gameResultModal?.didWin ? '¡Felicidades, ganaste la partida!' : `${gameResultModal?.winnerColor?.toUpperCase()} ganó la partida.`}
+          </p>
+          <div className={cn(
+            "text-4xl font-black tracking-wide",
+            (gameResultModal?.coinDelta ?? 0) >= 0 ? "text-emerald-400" : "text-red-400"
+          )}>
+            {(gameResultModal?.coinDelta ?? 0) >= 0 ? '+' : ''}{gameResultModal?.coinDelta ?? 0} coins
+          </div>
+          {typeof gameResultModal?.currentCoins === 'number' && (
+            <p className="text-white/70 text-sm">Balance actual: {gameResultModal.currentCoins.toLocaleString()} coins</p>
+          )}
           <button
             onClick={handleLeaveRoom}
             className="w-full bg-yellow-500 text-slate-900 font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-wider"
