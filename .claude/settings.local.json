@@ -39,7 +39,8 @@
       "Bash(kill 2206036:*)",
       "Bash(npx vite:*)",
       "Bash(pgrep:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(git:*)"
     ]
   }
 }

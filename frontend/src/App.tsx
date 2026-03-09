@@ -827,20 +827,11 @@ export default function App() {
             <p className="text-white/40 font-bold text-sm tracking-widest">{currentUser?.email}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 w-full">
-            <div className="bg-white/5 border border-white/5 p-6 rounded-[2rem] flex flex-col items-center gap-2">
-              <span className="text-[10px] text-white/30 font-black uppercase tracking-widest">Balance</span>
-              <div className="flex items-center gap-2">
-                <Coins className="w-5 h-5 text-yellow-500" />
-                <span className="font-heading text-3xl text-white">{currentUser?.coins.toLocaleString()}</span>
-              </div>
-            </div>
-            <div className="bg-white/5 border border-white/5 p-6 rounded-[2rem] flex flex-col items-center gap-2">
-              <span className="text-[10px] text-white/30 font-black uppercase tracking-widest">Global Rank</span>
-              <div className="flex items-center gap-2">
-                <Trophy className="w-5 h-5 text-yellow-500" />
-                <span className="font-heading text-3xl text-white">#1,240</span>
-              </div>
+          <div className="bg-white/5 border border-white/5 p-6 rounded-[2rem] flex flex-col items-center gap-2 w-full">
+            <span className="text-[10px] text-white/30 font-black uppercase tracking-widest">Balance</span>
+            <div className="flex items-center gap-2">
+              <Coins className="w-5 h-5 text-yellow-500" />
+              <span className="font-heading text-3xl text-white">{currentUser?.coins.toLocaleString()}</span>
             </div>
           </div>
 
@@ -876,25 +867,6 @@ export default function App() {
         </div>
       </Modal>
 
-      <Modal isOpen={activeModal === 'rank'} onClose={() => { setActiveModal(null); setActiveTab('home'); }} title="Rankings">
-        <div className="space-y-4">
-          {[1, 2, 3, 4, 5].map(i => (
-            <div key={i} className="flex justify-between items-center bg-white/5 rounded-2xl p-4 border border-white/5">
-              <div className="flex items-center gap-4">
-                <span className="font-black text-slate-500 text-2xl w-8">#{i}</span>
-                <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden">
-                  <img src={`https://picsum.photos/seed/${i}/100/100`} alt="user" />
-                </div>
-                <span className="font-bold text-white">Player_{i}99</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-yellow-500" />
-                <span className="font-heading text-xl text-yellow-500">{1000 - i * 10}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Modal>
 
       <Modal isOpen={activeModal === 'social'} onClose={() => { setActiveModal(null); setActiveTab('home'); }} title="Social Hub">
         <div className="space-y-8">

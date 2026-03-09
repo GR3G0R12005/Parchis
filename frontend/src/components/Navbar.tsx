@@ -13,7 +13,6 @@ export const Navbar: React.FC<NavbarProps> = ({ active, onChange }) => {
     { id: 'home', icon: Home, label: 'Lobby' },
     { id: 'profile', icon: User, label: 'Profile' },
     { id: 'shop', icon: ShoppingBag, label: 'Store' },
-    { id: 'rank', icon: Trophy, label: 'Ranks' },
     { id: 'social', icon: MessageCircle, label: 'Social' },
     { id: 'settings', icon: Settings, label: 'Menu' },
   ];
