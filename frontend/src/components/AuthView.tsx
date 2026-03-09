@@ -23,10 +23,10 @@ export const AuthView: React.FC<{ onAuthSuccess: (user: any) => void }> = ({ onA
         try {
             let user;
             if (isLogin) {
-                user = await authService.login(email);
+                user = await authService.login(email, password);
             } else {
                 const current = authService.getCurrentUser();
-                user = await authService.register(username, email, current?.avatar);
+                user = await authService.register(username, email, password, current?.avatar);
             }
             onAuthSuccess(user);
         } catch (err: any) {
@@ -98,7 +98,7 @@ export const AuthView: React.FC<{ onAuthSuccess: (user: any) => void }> = ({ onA
                                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" />
                                 <input
                                     type="password"
-                                    placeholder="Password (Local Only)"
+                                    placeholder="Password"
                                     required
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}

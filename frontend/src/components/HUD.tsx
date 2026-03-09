@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Coins, ShoppingCart, Flag } from 'lucide-react';
+import { Coins, Flag, Gem, Plus } from 'lucide-react';
 import { cn } from '../utils';
 
 interface HUDPlayer {
@@ -14,7 +14,6 @@ interface HUDPlayer {
 export const HUD: React.FC<{
   view?: 'lobby' | 'game' | 'waiting-room';
   onShopClick?: () => void;
-  onProfileClick?: () => void;
   user?: any;
   players?: HUDPlayer[];
   currentUserId?: string;
@@ -27,7 +26,7 @@ export const HUD: React.FC<{
   onPassDie?: (dieValue: number) => void;
   turnProgress?: number;
   turnSecondsLeft?: number;
-}> = ({ view = 'game', onShopClick, onProfileClick, user, players = [], currentUserId, onRoll, lastDiceRoll, remainingDice = [], currentTurn, myColor, onSurrender, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
+}> = ({ view = 'game', onShopClick, user, players = [], currentUserId, onRoll, lastDiceRoll, remainingDice = [], currentTurn, myColor, onSurrender, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
 
   const currentPlayer = players.find(p => String(p.id) === String(currentUserId));
 
@@ -35,23 +34,10 @@ export const HUD: React.FC<{
     <div className="fixed inset-0 pointer-events-none z-50 p-4 md:p-6 flex flex-col justify-between">
       {/* Top Bar */}
       <div className="flex justify-between items-start w-full">
-        {view === 'lobby' && (
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={onProfileClick}
-            className="pointer-events-auto bg-black/30 backdrop-blur-md rounded-[2rem] p-1.5 border border-white/10 cursor-pointer hover:bg-black/40 transition-all group"
-          >
-            <div className="w-14 h-14 rounded-[1.6rem] overflow-hidden border-2 border-white/20">
-              <img src={user?.avatar || "https://picsum.photos/seed/me/100/100"} alt="profile" className="w-full h-full object-cover" />
-            </div>
-          </motion.button>
-        )}
-
-        {view !== 'lobby' && <div />}
+        {view !== 'game' && <div />}
 
         {/* Top Right: Surrender + Currency */}
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center ml-auto">
           {view === 'game' && onSurrender && (
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -63,18 +49,37 @@ export const HUD: React.FC<{
               <Flag className="w-5 h-5 text-red-400" />
             </motion.button>
           )}
-          <div
-            onClick={onShopClick}
-            className="flex gap-2 pointer-events-auto items-center bg-black/30 backdrop-blur-md rounded-full pl-2 pr-1 py-1 border border-white/20 cursor-pointer hover:bg-black/40 transition-all group"
-          >
-            <div className="bg-yellow-500 rounded-full p-1.5 flex items-center justify-center group-hover:scale-110 transition-transform">
-              <Coins className="w-5 h-5 text-slate-900" />
+          {(view === 'game' || view === 'lobby') && (
+            <div className="flex gap-2 pointer-events-auto items-center">
+              {/* Coins */}
+              <div
+                onClick={onShopClick}
+                className="flex gap-2 items-center bg-black/30 backdrop-blur-md rounded-full pl-2 pr-2 py-1 border border-white/20 cursor-pointer hover:bg-black/40 transition-all group"
+              >
+                <div className="bg-yellow-500 rounded-full p-1.5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Coins className="w-4 h-4 text-slate-900" />
+                </div>
+                <span className="font-bold text-white tracking-tight text-sm">{user?.coins?.toLocaleString() || '0'}</span>
+                <div className="bg-yellow-500/20 rounded-full p-1 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Plus className="w-3 h-3 text-yellow-500" />
+                </div>
+              </div>
+
+              {/* Gems */}
+              <div
+                onClick={onShopClick}
+                className="flex gap-2 items-center bg-black/30 backdrop-blur-md rounded-full pl-2 pr-2 py-1 border border-white/20 cursor-pointer hover:bg-black/40 transition-all group"
+              >
+                <div className="bg-purple-500 rounded-full p-1.5 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Gem className="w-4 h-4 text-white" />
+                </div>
+                <span className="font-bold text-white tracking-tight text-sm">{(user?.gems ?? 0).toLocaleString?.() || '0'}</span>
+                <div className="bg-purple-500/20 rounded-full p-1 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Plus className="w-3 h-3 text-purple-400" />
+                </div>
+              </div>
             </div>
-            <span className="font-bold text-white px-2 tracking-tight">{user?.coins?.toLocaleString() || '0'}</span>
-            <div className="bg-white/10 rounded-full p-2 group-hover:bg-white/20 transition-all">
-              <ShoppingCart className="w-5 h-5 text-white" />
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -96,17 +101,16 @@ const PlayerWithDice: React.FC<{
   onRoll?: (values: [number, number]) => void;
   onPassDie?: (dieValue: number) => void;
   diceAlign: 'left' | 'right';
-  onAvatarClick?: () => void;
   timerProgress?: number;
   timerSecondsLeft?: number;
-}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onPassDie, diceAlign, onAvatarClick, timerProgress = 1, timerSecondsLeft }) => {
+}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onPassDie, diceAlign, timerProgress = 1, timerSecondsLeft }) => {
   return (
     <div className={cn(
       "flex items-center gap-1.5 sm:gap-3",
       diceAlign === 'right' && "flex-row-reverse"
       )}>
       {/* Avatar */}
-      <div onClick={onAvatarClick} className={cn("cursor-pointer", onAvatarClick && "hover:scale-105 active:scale-95 transition-transform")}>
+      <div>
         <Avatar
           name={name}
           image={image}
@@ -326,10 +330,9 @@ export const GamePlayerRow: React.FC<{
   remainingDice?: number[];
   onRoll?: (values: [number, number]) => void;
   onPassDie?: (dieValue: number) => void;
-  onProfileClick?: () => void;
   turnProgress?: number;
   turnSecondsLeft?: number;
-}> = ({ players, colors, currentUserId, user, currentTurn, myColor, lastDiceRoll, remainingDice = [], onRoll, onPassDie, onProfileClick, turnProgress = 1, turnSecondsLeft = 0 }) => {
+}> = ({ players, colors, currentUserId, user, currentTurn, myColor, lastDiceRoll, remainingDice = [], onRoll, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
   const rowPlayers = colors
     .map(c => players.find(p => p.color === c))
     .filter(Boolean) as typeof players;
@@ -354,7 +357,6 @@ export const GamePlayerRow: React.FC<{
               onRoll={isMe ? onRoll : undefined}
               onPassDie={isMe ? onPassDie : undefined}
               diceAlign={isLeft ? "left" : "right"}
-              onAvatarClick={isMe ? onProfileClick : undefined}
               timerProgress={player.isTurn ? turnProgress : 1}
               timerSecondsLeft={player.isTurn ? turnSecondsLeft : undefined}
             />

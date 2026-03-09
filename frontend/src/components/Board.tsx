@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { PlayerColor, Token } from '../types';
 import { getSquareCoords, getHomeCoords, getFinalPathCoords, getSquareOrientation, Point } from '../boardLayout';
+import { customizationService } from '../services/customizationService';
 import { cn } from '../utils';
 
 const STEP_MS = 150;
@@ -81,9 +82,11 @@ interface BoardProps {
   pendingToken?: Token | null;
   pendingDice?: number[];
   onDieSelect?: (die: number) => void;
+  boardTheme?: 'classic' | 'neon' | 'vintage' | 'royal';
+  tokenStyle?: 'classic' | 'gems' | 'medieval' | 'cosmic';
 }
 
-export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect }) => {
+export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, boardTheme = 'classic', tokenStyle = 'classic' }) => {
   const getTokensAtPos = (pos: number, tokenColor?: PlayerColor) => {
     return tokens.filter(t => t.position === pos && (pos !== -1 || t.color === tokenColor));
   };
@@ -151,14 +154,25 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="relative w-[min(100vw,calc(100dvh-16rem),800px)] aspect-square rounded-xl sm:rounded-2xl p-0 shadow-2xl flex items-center justify-center overflow-hidden bg-black/30"
+      className="relative w-full h-full rounded-xl sm:rounded-2xl p-0 shadow-2xl flex items-center justify-center overflow-y-hidden overflow-x-auto bg-black/30 md:overflow-hidden"
     >
-      <div className="relative w-full h-full rounded shadow-inner border-[1px] border-black/40 overflow-hidden">
+      <div
+        className="relative rounded shadow-inner border-[1px] border-black/40 overflow-hidden flex items-center justify-center"
+        style={{
+          aspectRatio: '1 / 1',
+          width: 'clamp(100%, 100vmin, 800px)',
+          height: 'clamp(100%, 100vmin, 800px)',
+          minWidth: '100%',
+        }}
+      >
         <img
-          src="/assets/tablero.png"
+          src={customizationService.getBoardUrl(boardTheme)}
           alt="Parchis board"
           className="absolute inset-0 w-full h-full object-fill pointer-events-none select-none"
           draggable={false}
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = customizationService.getBoardUrl('classic');
+          }}
         />
 
         {/* Tokens Layer */}
@@ -169,6 +183,7 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
               token={token}
               coords={getTokenCoords(token)}
               onClick={() => onTokenClick(token)}
+              tokenStyle={tokenStyle}
             />
           ))}
         </div>
@@ -232,13 +247,39 @@ const TokenComponent: React.FC<{
   token: Token;
   coords: { position: React.CSSProperties; scale: number };
   onClick: () => void;
-}> = ({ token, coords, onClick }) => {
-  const colorMap = {
-    red: 'from-[#FF80AB] via-[#FF4081] to-[#C2185B] border-[#880E4F]',
-    yellow: 'from-[#FFF176] via-[#FFEB3B] to-[#FBC02D] border-[#F57F17]',
-    green: 'from-[#B9F6CA] via-[#00E676] to-[#388E3C] border-[#1B5E20]',
-    blue: 'from-[#82B1FF] via-[#448AFF] to-[#1976D2] border-[#0D47A1]',
+  tokenStyle?: 'classic' | 'gems' | 'medieval' | 'cosmic';
+}> = ({ token, coords, onClick, tokenStyle = 'classic' }) => {
+  const getColorMap = (style: string) => {
+    const styles: Record<string, Record<string, string>> = {
+      classic: {
+        red: 'from-[#FF80AB] via-[#FF4081] to-[#C2185B] border-[#880E4F]',
+        yellow: 'from-[#FFF176] via-[#FFEB3B] to-[#FBC02D] border-[#F57F17]',
+        green: 'from-[#B9F6CA] via-[#00E676] to-[#388E3C] border-[#1B5E20]',
+        blue: 'from-[#82B1FF] via-[#448AFF] to-[#1976D2] border-[#0D47A1]',
+      },
+      gems: {
+        red: 'from-[#FF1744] via-[#E91E63] to-[#C2185B] border-[#880E4F] shadow-[0_0_20px_rgba(255,23,68,0.5)]',
+        yellow: 'from-[#FFEA00] via-[#FFD600] to-[#FBC02D] border-[#F57F17] shadow-[0_0_20px_rgba(255,234,0,0.5)]',
+        green: 'from-[#76FF03] via-[#00E676] to-[#388E3C] border-[#1B5E20] shadow-[0_0_20px_rgba(118,255,3,0.5)]',
+        blue: 'from-[#00B0FF] via-[#448AFF] to-[#1976D2] border-[#0D47A1] shadow-[0_0_20px_rgba(0,176,255,0.5)]',
+      },
+      medieval: {
+        red: 'from-[#8B0000] via-[#DC143C] to-[#600000] border-[#3D0000]',
+        yellow: 'from-[#DAA520] via-[#FFD700] to-[#B8860B] border-[#8B6914]',
+        green: 'from-[#2F6B2F] via-[#228B22] to-[#1C4C1C] border-[#0D3D0D]',
+        blue: 'from-[#1E3A8A] via-[#3B82F6] to-[#1E40AF] border-[#172554]',
+      },
+      cosmic: {
+        red: 'from-[#FF006E] via-[#FB5607] to-[#8B0000] border-[#FB5607] shadow-[0_0_15px_rgba(255,0,110,0.7)]',
+        yellow: 'from-[#FFBE0B] via-[#FB5607] to-[#FFB700] border-[#FB5607] shadow-[0_0_15px_rgba(255,190,11,0.7)]',
+        green: 'from-[#8338EC] via-[#3A86FF] to-[#06FFA5] border-[#3A86FF] shadow-[0_0_15px_rgba(6,255,165,0.7)]',
+        blue: 'from-[#06FFA5] via-[#3A86FF] to-[#8338EC] border-[#3A86FF] shadow-[0_0_15px_rgba(58,134,255,0.7)]',
+      },
+    };
+    return styles[style] || styles.classic;
   };
+
+  const colorMap = getColorMap(tokenStyle);
 
   const prevPosRef = useRef<number>(token.position);
   const [currentStyle, setCurrentStyle] = useState<React.CSSProperties>(coords.position);

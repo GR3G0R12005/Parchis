@@ -1,12 +1,11 @@
 export interface UserProfile {
-    uid: string;
+    id: string;
     username: string;
     email: string;
     coins: number;
+    gems: number;
     avatar: string;
-    createdAt: string;
-    friends?: string[];
-    friendRequests?: string[];
+    created_at: string;
 }
 
 export interface Room {
@@ -16,101 +15,105 @@ export interface Room {
     status: 'waiting' | 'playing';
 }
 
-const SESSION_KEY = 'parchis_active_session';
-// Use the local IP discovered earlier or localhost. Since we want to test on mobile, we can use a dynamic approach.
-// For now, I'll use the IP found (10.0.0.12) as a default, but it can be changed to window.location.hostname for ease.
+const TOKEN_KEY = 'parchis_jwt_token';
+const USER_KEY = 'parchis_user_data';
 const BASE_URL = '/api';
 
 export const authService = {
+    // Get stored JWT token
+    getToken: (): string | null => {
+        return localStorage.getItem(TOKEN_KEY);
+    },
+
+    // Set JWT token
+    setToken: (token: string) => {
+        localStorage.setItem(TOKEN_KEY, token);
+    },
+
     // Current session (cached locally)
     getCurrentUser: (): UserProfile | null => {
-        const data = localStorage.getItem(SESSION_KEY);
+        const data = localStorage.getItem(USER_KEY);
         if (!data) return null;
-        return JSON.parse(data);
+        try {
+            return JSON.parse(data);
+        } catch {
+            return null;
+        }
+    },
+
+    // Set current user data
+    setCurrentUser: (user: UserProfile) => {
+        localStorage.setItem(USER_KEY, JSON.stringify(user));
     },
 
     // Register
-    register: async (username: string, email: string, customAvatar?: string): Promise<UserProfile> => {
+    register: async (username: string, email: string, password: string, customAvatar?: string): Promise<UserProfile> => {
         const avatar = customAvatar || `https://picsum.photos/seed/${username}/100/100`;
         const res = await fetch(`${BASE_URL}/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, email, avatar })
+            body: JSON.stringify({ username, email, password, avatar })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to register');
-        localStorage.setItem(SESSION_KEY, JSON.stringify(data));
-        return data;
+
+        // Store JWT token and user data
+        const { access_token, ...user } = data;
+        if (access_token) {
+            authService.setToken(access_token);
+        }
+        authService.setCurrentUser(user);
+        return user;
     },
 
     // Login
-    login: async (email: string): Promise<UserProfile> => {
+    login: async (email: string, password: string): Promise<UserProfile> => {
         const res = await fetch(`${BASE_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
+            body: JSON.stringify({ email, password })
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'User not found');
-        localStorage.setItem(SESSION_KEY, JSON.stringify(data));
-        return data;
+        if (!res.ok) throw new Error(data.error || 'Invalid credentials');
+
+        // Store JWT token and user data
+        const { access_token, ...user } = data;
+        if (access_token) {
+            authService.setToken(access_token);
+        }
+        authService.setCurrentUser(user);
+        return user;
     },
 
     // Logout
     logout: () => {
-        localStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
     },
 
-    updateAvatar: async (uid: string, avatar: string) => {
+    updateAvatar: async (id: string, avatar: string) => {
+        const token = authService.getToken();
         const res = await fetch(`${BASE_URL}/auth/update-avatar`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid, avatar })
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            },
+            body: JSON.stringify({ id, avatar })
         });
-        return await res.json();
+        const data = await res.json();
+
+        // Update local user data
+        if (res.ok) {
+            const user = authService.getCurrentUser();
+            if (user) {
+                const updated = { ...user, avatar: data.avatar };
+                authService.setCurrentUser(updated);
+            }
+        }
+        return data;
     },
 
-    // Social
-    searchUsers: async (query: string): Promise<UserProfile[]> => {
-        const current = authService.getCurrentUser();
-        if (!current) return [];
-        const res = await fetch(`${BASE_URL}/social/search?q=${query}&exclude=${current.uid}`);
-        return await res.json();
-    },
-
-    sendFriendRequest: async (targetUid: string) => {
-        const current = authService.getCurrentUser();
-        if (!current) return;
-        await fetch(`${BASE_URL}/social/request`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ senderUid: current.uid, receiverUid: targetUid })
-        });
-    },
-
-    getFriendRequests: async (): Promise<UserProfile[]> => {
-        const current = authService.getCurrentUser();
-        if (!current) return [];
-        const res = await fetch(`${BASE_URL}/social/requests/${current.uid}`);
-        return await res.json();
-    },
-
-    acceptFriendRequest: async (senderUid: string) => {
-        const current = authService.getCurrentUser();
-        if (!current) return;
-        await fetch(`${BASE_URL}/social/accept`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ receiverUid: current.uid, senderUid })
-        });
-    },
-
-    getFriendsDetails: async (): Promise<UserProfile[]> => {
-        const current = authService.getCurrentUser();
-        if (!current) return [];
-        const res = await fetch(`${BASE_URL}/social/friends/${current.uid}`);
-        return await res.json();
-    },
 
     // Room Methods (Still mainly local/socket based on server map for now)
     // But we use the SAME server logic as before.

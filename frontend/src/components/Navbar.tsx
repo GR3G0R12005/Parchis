@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Home, ShoppingBag, Trophy, Settings, MessageCircle, User } from 'lucide-react';
+import { Home, ShoppingBag, Settings } from 'lucide-react';
 import { cn } from '../utils';
 
 interface NavbarProps {
@@ -11,9 +11,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ active, onChange }) => {
   const items = [
     { id: 'home', icon: Home, label: 'Lobby' },
-    { id: 'profile', icon: User, label: 'Profile' },
     { id: 'shop', icon: ShoppingBag, label: 'Store' },
-    { id: 'social', icon: MessageCircle, label: 'Social' },
     { id: 'settings', icon: Settings, label: 'Menu' },
   ];
 

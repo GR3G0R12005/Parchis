@@ -1,10 +1,14 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from "express";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from 'url';
-import { dbService } from './db.js';
+import { supabaseDbService, supabaseAdmin, supabase } from './supabaseDb.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,70 +24,287 @@ async function startServer() {
   });
 
   app.use(cors());
-  app.use(express.json());
+  app.use(express.json({ limit: '20mb' }));
 
   const PORT = Number(process.env.PORT) || 3005;
 
   // --- REST API for AUTH & SOCIAL ---
 
-  app.post("/api/auth/register", (req, res) => {
-    const { username, email, avatar } = req.body;
+  app.post("/api/auth/register", async (req, res) => {
+    const { username, email, avatar, password } = req.body;
     try {
-      if (dbService.getUserByEmail(email)) {
+      // Check if email already exists in our users table
+      const existingUser = await supabaseDbService.getUserByEmail(email);
+      if (existingUser) {
         return res.status(400).json({ error: "Email already registered" });
       }
-      const user = dbService.createUser(username, email, avatar);
-      res.json(user);
-    } catch (e) {
-      res.status(500).json({ error: "Server error" });
+
+      // Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true
+      });
+
+      if (authError) {
+        return res.status(400).json({ error: authError.message });
+      }
+
+      // Create user profile in database
+      const user = await supabaseDbService.createUser(
+        authData.user.id,
+        username,
+        email,
+        avatar || `https://picsum.photos/seed/${username}/100/100`
+      );
+
+      // Generate JWT token for the new user
+      const { data: sessionData } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      res.json({
+        ...user,
+        access_token: sessionData?.session?.access_token || null
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Server error" });
     }
   });
 
-  app.post("/api/auth/login", (req, res) => {
-    const { email } = req.body;
-    const user = dbService.getUserByEmail(email);
-    if (!user) return res.status(404).json({ error: "User not found" });
-    res.json(user);
+  app.post("/api/auth/login", async (req, res) => {
+    const { email, password } = req.body;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      const user = await supabaseDbService.getUserById(data.user.id);
+      if (!user) {
+        return res.status(404).json({ error: "User profile not found" });
+      }
+
+      res.json({
+        ...user,
+        access_token: data.session?.access_token || null
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Server error" });
+    }
   });
 
-  app.post("/api/auth/update-avatar", (req, res) => {
-    const { uid, avatar } = req.body;
+  app.post("/api/auth/update-avatar", async (req, res) => {
+    const { id, avatar } = req.body;
     try {
-      dbService.updateUserAvatar(uid, avatar);
-      res.json({ success: true });
-    } catch (e) {
+      const user = await supabaseDbService.updateUserAvatar(id, avatar);
+      res.json(user);
+    } catch (e: any) {
       res.status(500).json({ error: "Failed to update avatar" });
     }
   });
 
-  app.get("/api/social/search", (req, res) => {
-    const { q, exclude } = req.query;
-    if (!q) return res.json([]);
-    const users = dbService.searchUsers(q as string, exclude as string);
-    res.json(users);
+  // --- Store APIs ---
+  app.post("/api/store/buy-coins", async (req, res) => {
+    const { id, amount } = req.body;
+    try {
+      const newCoins = await supabaseDbService.adjustUserCoins(id, amount);
+      const user = await supabaseDbService.getUserById(id);
+      res.json({ success: true, coins: newCoins, user });
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to purchase coins" });
+    }
   });
 
-  app.get("/api/social/friends/:uid", (req, res) => {
-    const friends = dbService.getFriends(req.params.uid);
-    res.json(friends);
+  app.post("/api/store/buy-gems", async (req, res) => {
+    const { id, amount } = req.body;
+    try {
+      const newGems = await supabaseDbService.adjustUserGems(id, amount);
+      const user = await supabaseDbService.getUserById(id);
+      res.json({ success: true, gems: newGems, user });
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to purchase gems" });
+    }
   });
 
-  app.get("/api/social/requests/:uid", (req, res) => {
-    const requests = dbService.getFriendRequests(req.params.uid);
-    res.json(requests);
+  // --- Store: Board Themes & Token Styles ---
+
+  app.get("/api/store/boards", async (_req, res) => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('board_themes')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) throw new Error(error.message);
+      res.json(data || []);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch board themes" });
+    }
   });
 
-  app.post("/api/social/request", (req, res) => {
-    const { senderUid, receiverUid } = req.body;
-    dbService.sendFriendRequest(senderUid, receiverUid);
-    res.json({ success: true });
+  app.get("/api/store/tokens", async (_req, res) => {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('token_styles')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+
+      if (error) throw new Error(error.message);
+      res.json(data || []);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch token styles" });
+    }
   });
 
-  app.post("/api/social/accept", (req, res) => {
-    const { receiverUid, senderUid } = req.body;
-    dbService.acceptFriendRequest(receiverUid, senderUid);
-    res.json({ success: true });
+  app.get("/api/store/my-purchases", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        return res.status(401).json({ error: "Authorization token required" });
+      }
+
+      const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+      if (authError || !user) {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      const purchases = await supabaseDbService.getUserPurchases(user.id);
+      res.json(purchases);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to fetch purchases" });
+    }
   });
+
+  app.post("/api/store/buy-board", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        return res.status(401).json({ error: "Authorization token required" });
+      }
+
+      const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+      if (authError || !user) {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      const { boardId } = req.body;
+      if (!boardId) {
+        return res.status(400).json({ error: "boardId is required" });
+      }
+
+      // Check if already purchased
+      const alreadyOwned = await supabaseDbService.hasUserPurchased(user.id, 'board', boardId);
+      if (alreadyOwned) {
+        return res.status(400).json({ error: "You already own this board theme" });
+      }
+
+      // Get the board theme to find price
+      const { data: board, error: boardError } = await supabaseAdmin
+        .from('board_themes')
+        .select('*')
+        .eq('id', boardId)
+        .single();
+
+      if (boardError || !board) {
+        return res.status(404).json({ error: "Board theme not found" });
+      }
+
+      const priceGems = board.price_gems || 0;
+
+      if (priceGems > 0) {
+        // Check user has enough gems
+        const userProfile = await supabaseDbService.getUserById(user.id);
+        if (!userProfile || userProfile.gems < priceGems) {
+          return res.status(400).json({ error: "Not enough gems" });
+        }
+
+        // Deduct gems
+        const newGems = await supabaseDbService.adjustUserGems(user.id, -priceGems);
+
+        // Record purchase
+        await supabaseDbService.purchaseItem(user.id, 'board', boardId);
+
+        return res.json({ success: true, gems: newGems });
+      } else {
+        // Free item - just record the purchase
+        await supabaseDbService.purchaseItem(user.id, 'board', boardId);
+        const userProfile = await supabaseDbService.getUserById(user.id);
+        return res.json({ success: true, gems: userProfile?.gems || 0 });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to purchase board theme" });
+    }
+  });
+
+  app.post("/api/store/buy-token", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) {
+        return res.status(401).json({ error: "Authorization token required" });
+      }
+
+      const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+      if (authError || !user) {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+
+      const { tokenId } = req.body;
+      if (!tokenId) {
+        return res.status(400).json({ error: "tokenId is required" });
+      }
+
+      // Check if already purchased
+      const alreadyOwned = await supabaseDbService.hasUserPurchased(user.id, 'token', tokenId);
+      if (alreadyOwned) {
+        return res.status(400).json({ error: "You already own this token style" });
+      }
+
+      // Get the token style to find price
+      const { data: tokenStyle, error: tokenError } = await supabaseAdmin
+        .from('token_styles')
+        .select('*')
+        .eq('id', tokenId)
+        .single();
+
+      if (tokenError || !tokenStyle) {
+        return res.status(404).json({ error: "Token style not found" });
+      }
+
+      const priceGems = tokenStyle.price_gems || 0;
+
+      if (priceGems > 0) {
+        // Check user has enough gems
+        const userProfile = await supabaseDbService.getUserById(user.id);
+        if (!userProfile || userProfile.gems < priceGems) {
+          return res.status(400).json({ error: "Not enough gems" });
+        }
+
+        // Deduct gems
+        const newGems = await supabaseDbService.adjustUserGems(user.id, -priceGems);
+
+        // Record purchase
+        await supabaseDbService.purchaseItem(user.id, 'token', tokenId);
+
+        return res.json({ success: true, gems: newGems });
+      } else {
+        // Free item - just record the purchase
+        await supabaseDbService.purchaseItem(user.id, 'token', tokenId);
+        const userProfile = await supabaseDbService.getUserById(user.id);
+        return res.json({ success: true, gems: userProfile?.gems || 0 });
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e.message || "Failed to purchase token style" });
+    }
+  });
+
 
   // ========================================
   // PARCHÍS GAME LOGIC (100% Authentic)
@@ -98,7 +319,6 @@ async function startServer() {
   const FINAL_PATH_LENGTH = 7; // 7 squares in final corridor (positions 69-75)
   const GOAL_POSITION = 76;
   const HOME_POSITION = -1;
-  const COINS_PER_DEFEATED_PLAYER = 100;
 
   // Exit positions per color (where tokens enter the main board)
   const EXIT_POSITIONS: Record<string, number> = {
@@ -377,36 +597,30 @@ async function startServer() {
   };
 
   const emitGameWon = (room: any, roomId: string, winnerColor: string, winnerUid?: string, reason?: string) => {
-    const statePlayers = (room.gameState?.players || []).map((p: any) => ({ uid: p.id, color: p.color }));
-    const roomPlayers = (room.players || []).map((p: any) => ({ uid: p.uid, color: p.color }));
-    const participantsByUid = new Map<string, { uid: string; color: string }>();
+    const statePlayers = (room.gameState?.players || []).map((p: any) => ({ id: p.id, color: p.color }));
+    const roomPlayers = (room.players || []).map((p: any) => ({ id: p.id, color: p.color }));
+    const participantsByUid = new Map<string, { id: string; color: string }>();
     for (const p of [...statePlayers, ...roomPlayers]) {
-      if (!p?.uid) continue;
-      participantsByUid.set(p.uid, p);
+      if (!p?.id) continue;
+      participantsByUid.set(p.id, p);
     }
     const participants = [...participantsByUid.values()];
-    const resolvedWinnerUid = winnerUid || participants.find((p) => p.color === winnerColor)?.uid;
-    const losers = participants.filter((p) => p.uid !== resolvedWinnerUid);
-    const winnerReward = COINS_PER_DEFEATED_PLAYER * losers.length;
-    const coinChanges: Record<string, { delta: number; coins: number }> = {};
+    const resolvedWinnerUid = winnerUid || participants.find((p) => p.color === winnerColor)?.id;
+    const losers = participants.filter((p) => p.id !== resolvedWinnerUid);
 
-    for (const participant of participants) {
-      if (!participant.uid) continue;
-      const delta = participant.uid === resolvedWinnerUid ? winnerReward : -COINS_PER_DEFEATED_PLAYER;
-      const coins = dbService.adjustUserCoins(participant.uid, delta);
-      coinChanges[participant.uid] = { delta, coins };
-    }
+    // Rewards removed - users decide stakes when joining
+    const coinChanges: Record<string, { delta: number; coins: number }> = {};
 
     io.to(roomId).emit("game-won", { winnerColor, winnerUid: resolvedWinnerUid, reason, coinChanges });
   };
 
   const createInitialState = (room: any) => {
     const players = room.players.map((p: any, idx: number) => {
-      const user = dbService.getUserByUid(p.uid);
+      const user = dbService.getUserByUid(p.id);
       return {
-        id: p.uid,
+        id: p.id,
         username: user?.username || 'Guest',
-        avatar: user?.avatar || `https://picsum.photos/seed/${p.uid}/100/100`,
+        avatar: user?.avatar || `https://picsum.photos/seed/${p.id}/100/100`,
         color: p.color,
         tokens: [
           { id: `${p.color}-1`, color: p.color, position: HOME_POSITION, isSafe: true },
@@ -543,7 +757,7 @@ async function startServer() {
         currentP.score++;
         if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
           const winner = room.players.find((p: any) => p.color === freshState.currentTurn);
-          emitGameWon(room, roomId, freshState.currentTurn, winner?.uid);
+          emitGameWon(room, roomId, freshState.currentTurn, winner?.id);
           freshState.status = "finished";
           room.status = "finished";
           io.to(roomId).emit("room-update", freshState);
@@ -652,7 +866,7 @@ async function startServer() {
       currentP.score++;
       if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
         const winner = room.players.find((p: any) => p.color === freshState.currentTurn);
-        emitGameWon(room, roomId, freshState.currentTurn, winner?.uid);
+        emitGameWon(room, roomId, freshState.currentTurn, winner?.id);
         freshState.status = "finished";
         room.status = "finished";
         io.to(roomId).emit("room-update", freshState);
@@ -682,25 +896,25 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
 
-    socket.on("join-room", ({ roomId, uid }) => {
-      console.log(`Join Room: room=${roomId}, uid=${uid}`);
+    socket.on("join-room", ({ roomId, id }) => {
+      console.log(`Join Room: room=${roomId}, id=${id}`);
       socket.join(roomId);
       if (!rooms.has(roomId)) {
-        rooms.set(roomId, { id: roomId, players: [], gameState: null, status: "waiting", creatorId: uid });
+        rooms.set(roomId, { id: roomId, players: [], gameState: null, status: "waiting", creatorId: id });
       }
       const room = rooms.get(roomId);
 
       // Reconnection check
-      const existingPlayer = room.players.find((p: any) => p.uid === uid);
+      const existingPlayer = room.players.find((p: any) => p.id === id);
       if (existingPlayer) {
         existingPlayer.socketId = socket.id;
-        const timerKey = `${roomId}:${uid}`;
+        const timerKey = `${roomId}:${id}`;
         if (disconnectTimers.has(timerKey)) {
           clearTimeout(disconnectTimers.get(timerKey)!);
           disconnectTimers.delete(timerKey);
         }
         const dcSet = disconnectedPlayers.get(roomId);
-        if (dcSet) dcSet.delete(uid);
+        if (dcSet) dcSet.delete(id);
         socket.emit("player-assigned", existingPlayer.color);
         if (room.gameState) {
           io.to(roomId).emit("room-update", room.gameState);
@@ -714,7 +928,7 @@ async function startServer() {
       if (room.players.length < 4 && room.status === "waiting") {
         const colors = ["red", "green", "yellow", "blue"];
         const assignedColor = colors[room.players.length];
-        room.players.push({ uid, color: assignedColor, socketId: socket.id });
+        room.players.push({ id, color: assignedColor, socketId: socket.id });
         socket.emit("player-assigned", assignedColor);
       }
 
@@ -735,11 +949,11 @@ async function startServer() {
       io.to(roomId).emit("room-update", currentState);
     });
 
-    socket.on("leave-room", ({ roomId, uid }) => {
+    socket.on("leave-room", ({ roomId, id }) => {
       const room = rooms.get(roomId);
       if (!room) return;
       socket.leave(roomId);
-      room.players = room.players.filter((p: any) => p.uid !== uid);
+      room.players = room.players.filter((p: any) => p.id !== id);
       if (room.players.length === 0) {
         rooms.delete(roomId);
       } else {
@@ -882,7 +1096,7 @@ async function startServer() {
         if (newPos === GOAL_POSITION) {
           currentP.score++;
           if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
-            emitGameWon(room, roomId, state.currentTurn, movingPlayer.uid);
+            emitGameWon(room, roomId, state.currentTurn, movingPlayer.id);
             state.status = "finished";
             room.status = "finished";
             io.to(roomId).emit("room-update", state);
@@ -979,7 +1193,7 @@ async function startServer() {
       if (newPos === GOAL_POSITION) {
         currentP.score++;
         if (currentP.tokens.every((t: any) => t.position === GOAL_POSITION)) {
-          emitGameWon(room, roomId, state.currentTurn, movingPlayer.uid);
+          emitGameWon(room, roomId, state.currentTurn, movingPlayer.id);
           state.status = "finished";
           room.status = "finished";
           io.to(roomId).emit("room-update", state);
@@ -1068,13 +1282,13 @@ async function startServer() {
     });
 
     // --- CHECK ROOM ---
-    socket.on("check-room", ({ roomId, uid }) => {
+    socket.on("check-room", ({ roomId, id }) => {
       const room = rooms.get(roomId);
       if (!room) {
         socket.emit("check-room-result", { exists: false, canRejoin: false });
         return;
       }
-      const player = room.players.find((p: any) => p.uid === uid);
+      const player = room.players.find((p: any) => p.id === id);
       if (player) {
         socket.emit("check-room-result", {
           exists: true,
@@ -1088,24 +1302,24 @@ async function startServer() {
     });
 
     // --- REJOIN ROOM ---
-    socket.on("rejoin-room", ({ roomId, uid }) => {
+    socket.on("rejoin-room", ({ roomId, id }) => {
       const room = rooms.get(roomId);
       if (!room) {
         socket.emit("rejoin-failed", { reason: "Room no longer exists" });
         return;
       }
-      const player = room.players.find((p: any) => p.uid === uid);
+      const player = room.players.find((p: any) => p.id === id);
       if (!player) {
         socket.emit("rejoin-failed", { reason: "You are no longer in this room" });
         return;
       }
-      const timerKey = `${roomId}:${uid}`;
+      const timerKey = `${roomId}:${id}`;
       if (disconnectTimers.has(timerKey)) {
         clearTimeout(disconnectTimers.get(timerKey)!);
         disconnectTimers.delete(timerKey);
       }
       const dcSet = disconnectedPlayers.get(roomId);
-      if (dcSet) dcSet.delete(uid);
+      if (dcSet) dcSet.delete(id);
 
       player.socketId = socket.id;
       socket.join(roomId);
@@ -1118,35 +1332,35 @@ async function startServer() {
     });
 
     // --- SURRENDER ---
-    socket.on("surrender", ({ roomId, uid }) => {
+    socket.on("surrender", ({ roomId, id }) => {
       const room = rooms.get(roomId);
       if (!room) return;
-      const player = room.players.find((p: any) => p.uid === uid);
+      const player = room.players.find((p: any) => p.id === id);
       if (!player) return;
       const surrenderedColor = player.color;
       const wasTurn = room.gameState?.currentTurn === surrenderedColor;
 
-      room.players = room.players.filter((p: any) => p.uid !== uid);
+      room.players = room.players.filter((p: any) => p.id !== id);
 
-      const timerKey = `${roomId}:${uid}`;
+      const timerKey = `${roomId}:${id}`;
       if (disconnectTimers.has(timerKey)) {
         clearTimeout(disconnectTimers.get(timerKey)!);
         disconnectTimers.delete(timerKey);
       }
 
       const surrenderedPlayerInState = room.gameState?.players.find((p: any) => p.color === surrenderedColor);
-      const surrenderedUser = dbService.getUserByUid(uid);
+      const surrenderedUser = dbService.getUserByUid(id);
       const surrenderedUsername = surrenderedPlayerInState?.username || surrenderedUser?.username || "Jugador";
       io.to(roomId).emit("player-surrendered", {
         color: surrenderedColor,
-        uid,
+        id,
         username: surrenderedUsername
       });
 
       if (room.players.length <= 1) {
         if (room.players.length === 1) {
           const winner = room.players[0];
-          emitGameWon(room, roomId, winner.color, winner.uid, "surrender");
+          emitGameWon(room, roomId, winner.color, winner.id, "surrender");
         }
         room.status = "finished";
         if (room.gameState) room.gameState.status = "finished";
@@ -1170,18 +1384,18 @@ async function startServer() {
         const player = room.players[playerIndex];
 
         if (room.status === "playing") {
-          const timerKey = `${roomId}:${player.uid}`;
-          console.log(`Player ${player.uid} disconnected. 30s grace period.`);
+          const timerKey = `${roomId}:${player.id}`;
+          console.log(`Player ${player.id} disconnected. 30s grace period.`);
 
           if (!disconnectedPlayers.has(roomId)) {
             disconnectedPlayers.set(roomId, new Set());
           }
-          disconnectedPlayers.get(roomId)!.add(player.uid);
+          disconnectedPlayers.get(roomId)!.add(player.id);
 
           const timer = setTimeout(() => {
             disconnectTimers.delete(timerKey);
             const dcSet = disconnectedPlayers.get(roomId);
-            if (dcSet) dcSet.delete(player.uid);
+            if (dcSet) dcSet.delete(player.id);
 
             const currentRoom = rooms.get(roomId);
             if (!currentRoom) return;
@@ -1189,20 +1403,20 @@ async function startServer() {
             const surrenderedColor = player.color;
             const wasTurn = currentRoom.gameState?.currentTurn === surrenderedColor;
 
-            currentRoom.players = currentRoom.players.filter((p: any) => p.uid !== player.uid);
+            currentRoom.players = currentRoom.players.filter((p: any) => p.id !== player.id);
             const surrenderedPlayerInState = currentRoom.gameState?.players.find((p: any) => p.color === surrenderedColor);
-            const surrenderedUser = dbService.getUserByUid(player.uid);
+            const surrenderedUser = dbService.getUserByUid(player.id);
             const surrenderedUsername = surrenderedPlayerInState?.username || surrenderedUser?.username || "Jugador";
             io.to(roomId).emit("player-surrendered", {
               color: surrenderedColor,
-              uid: player.uid,
+              id: player.id,
               username: surrenderedUsername
             });
 
             if (currentRoom.players.length <= 1) {
               if (currentRoom.players.length === 1) {
                 const winner = currentRoom.players[0];
-                emitGameWon(currentRoom, roomId, winner.color, winner.uid, "surrender");
+                emitGameWon(currentRoom, roomId, winner.color, winner.id, "surrender");
               }
               currentRoom.status = "finished";
               if (currentRoom.gameState) currentRoom.gameState.status = "finished";
@@ -1228,6 +1442,245 @@ async function startServer() {
         }
       }
     });
+  });
+
+  // --- ADMIN ENDPOINTS ---
+
+  // Get statistics (dashboard)
+  app.get("/api/admin/statistics", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const stats = await supabaseDbService.getStatistics();
+      res.json(stats);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Check if user is admin
+  app.get("/api/admin/is-admin", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      if (!token) {
+        return res.status(401).json({ isAdmin: false });
+      }
+
+      const { data } = await supabaseAdmin.auth.getUser(token);
+      if (!data.user) {
+        return res.status(401).json({ isAdmin: false });
+      }
+
+      const isAdmin = await supabaseDbService.isUserAdmin(data.user.id);
+      res.json({ isAdmin });
+    } catch (e: any) {
+      res.json({ isAdmin: false });
+    }
+  });
+
+  // Get store packages
+  app.get("/api/admin/store-packages", async (req, res) => {
+    try {
+      const packages = await supabaseDbService.getStorePackages();
+      res.json(packages);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Update store package
+  app.put("/api/admin/store-packages/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { name, amount, price_usd } = req.body;
+      const updated = await supabaseDbService.updateStorePackage(req.params.id, {
+        name,
+        amount,
+        price_usd
+      });
+
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Create store package
+  app.post("/api/admin/store-packages", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { type, name, amount, price_usd } = req.body;
+      const newPackage = await supabaseDbService.createStorePackage(type, name, amount, price_usd);
+
+      res.json(newPackage);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Delete store package
+  app.delete("/api/admin/store-packages/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      await supabaseDbService.deleteStorePackage(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Get board themes
+  app.get("/api/admin/board-themes", async (req, res) => {
+    try {
+      const themes = await supabaseDbService.getBoardThemes();
+      res.json(themes);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Upload board theme
+  app.post("/api/admin/board-themes/upload", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { name, display_name, description, price_gems, file } = req.body;
+
+      if (!file || !name) {
+        return res.status(400).json({ error: "Missing file or name" });
+      }
+
+      // Decode base64 file
+      const buffer = Buffer.from(file, 'base64');
+      const filename = `tablero-${name}.png`;
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from('assets')
+        .upload(`boards/${filename}`, buffer, { upsert: true, contentType: 'image/png' });
+
+      if (uploadError) {
+        return res.status(500).json({ error: uploadError.message });
+      }
+
+      const imageUrl = `https://supabase.cloudteco.com/storage/v1/object/public/assets/boards/${filename}`;
+      const theme = await supabaseDbService.createBoardTheme(name, display_name || name, description || '', imageUrl);
+
+      // Update price_gems if provided
+      if (price_gems !== undefined && price_gems > 0) {
+        await supabaseDbService.updateBoardTheme(theme.id, { price_gems });
+      }
+
+      res.json({ ...theme, price_gems: price_gems || 0 });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Update board theme
+  app.put("/api/admin/board-themes/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { display_name, description, is_active, price_gems } = req.body;
+      const updated = await supabaseDbService.updateBoardTheme(req.params.id, {
+        display_name,
+        description,
+        price_gems,
+        is_active
+      });
+
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Get token styles
+  app.get("/api/admin/token-styles", async (req, res) => {
+    try {
+      const styles = await supabaseDbService.getTokenStyles();
+      res.json(styles);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Create token style
+  app.post("/api/admin/token-styles", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { name, display_name, description } = req.body;
+      const style = await supabaseDbService.createTokenStyle(name, display_name || name, description || '');
+
+      res.json(style);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Update token style
+  app.put("/api/admin/token-styles/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { display_name, description, is_active } = req.body;
+      const updated = await supabaseDbService.updateTokenStyle(req.params.id, {
+        display_name,
+        description,
+        is_active
+      });
+
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // Serve Frontend in Production

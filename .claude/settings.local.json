@@ -40,7 +40,10 @@
       "Bash(npx vite:*)",
       "Bash(pgrep:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(grep:*)",
+      "Bash(supabase:*)",
+      "Bash(__NEW_LINE_c09b2ee9fc49252b__ rm:*)"
     ]
   }
 }
