@@ -616,7 +616,7 @@ async function startServer() {
 
   const createInitialState = (room: any) => {
     const players = room.players.map((p: any, idx: number) => {
-      const user = dbService.getUserByUid(p.id);
+      const user = supabaseDbService.getUserById(p.id);
       return {
         id: p.id,
         username: user?.username || 'Guest',
@@ -1349,7 +1349,7 @@ async function startServer() {
       }
 
       const surrenderedPlayerInState = room.gameState?.players.find((p: any) => p.color === surrenderedColor);
-      const surrenderedUser = dbService.getUserByUid(id);
+      const surrenderedUser = supabaseDbService.getUserById(id);
       const surrenderedUsername = surrenderedPlayerInState?.username || surrenderedUser?.username || "Jugador";
       io.to(roomId).emit("player-surrendered", {
         color: surrenderedColor,
@@ -1405,7 +1405,7 @@ async function startServer() {
 
             currentRoom.players = currentRoom.players.filter((p: any) => p.id !== player.id);
             const surrenderedPlayerInState = currentRoom.gameState?.players.find((p: any) => p.color === surrenderedColor);
-            const surrenderedUser = dbService.getUserByUid(player.id);
+            const surrenderedUser = supabaseDbService.getUserById(player.id);
             const surrenderedUsername = surrenderedPlayerInState?.username || surrenderedUser?.username || "Jugador";
             io.to(roomId).emit("player-surrendered", {
               color: surrenderedColor,
