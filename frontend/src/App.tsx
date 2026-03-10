@@ -76,6 +76,17 @@ const clearSession = () => {
 
 const TURN_DURATION_SECONDS = 30;
 
+const BOARD_PERSPECTIVE_BY_COLOR: Record<PlayerColor, {
+  rotationDeg: number;
+  topRowColors: [PlayerColor, PlayerColor];
+  bottomRowColors: [PlayerColor, PlayerColor];
+}> = {
+  yellow: { rotationDeg: 0, topRowColors: ['green', 'red'], bottomRowColors: ['yellow', 'blue'] },
+  red: { rotationDeg: 180, topRowColors: ['blue', 'yellow'], bottomRowColors: ['red', 'green'] },
+  green: { rotationDeg: -90, topRowColors: ['red', 'blue'], bottomRowColors: ['green', 'yellow'] },
+  blue: { rotationDeg: 90, topRowColors: ['yellow', 'green'], bottomRowColors: ['blue', 'red'] },
+};
+
 // --- Main App Component ---
 export default function App() {
   // Auth & Profile State
@@ -775,6 +786,7 @@ export default function App() {
 
   const turnProgress = Math.max(0, Math.min(1, turnSecondsLeft / TURN_DURATION_SECONDS));
   const isPublicRoom = (roomCode || '').startsWith('public-');
+  const boardPerspective = BOARD_PERSPECTIVE_BY_COLOR[myColor ?? 'yellow'];
 
   // --- Rendering ---
 
@@ -1259,11 +1271,11 @@ export default function App() {
             >
               {/* Board + Player rows grouped tightly */}
               <div className="flex flex-col items-center w-full">
-                {/* Top player row: green (left), red (right) */}
+                {/* Top player row based on current player perspective */}
                 <div className="w-[min(100vw,calc(100dvh-16rem),800px)] px-1 pb-1">
                   <GamePlayerRow
                     players={gameState?.players || []}
-                    colors={['green', 'red']}
+                    colors={boardPerspective.topRowColors}
                     currentUserId={currentUser?.id}
                     user={currentUser}
                     currentTurn={gameState?.currentTurn}
@@ -1286,6 +1298,7 @@ export default function App() {
                   pendingToken={pendingToken}
                   pendingDice={gameState?.remainingDice || []}
                   onDieSelect={handleDieSelect}
+                  rotationDeg={boardPerspective.rotationDeg}
                   boardTheme={customization.boardTheme}
                   tokenStyle={customization.tokenStyle}
                   onTokenStep={playTokenStep}
@@ -1301,11 +1314,11 @@ export default function App() {
                   })()}
                 />
 
-                {/* Bottom player row: yellow (left), blue (right) */}
+                {/* Bottom player row (always keeps current player on bottom-left) */}
                 <div className="w-[min(100vw,calc(100dvh-16rem),800px)] px-1 pt-1">
                   <GamePlayerRow
                     players={gameState?.players || []}
-                    colors={['yellow', 'blue']}
+                    colors={boardPerspective.bottomRowColors}
                     currentUserId={currentUser?.id}
                     user={currentUser}
                     currentTurn={gameState?.currentTurn}

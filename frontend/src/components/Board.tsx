@@ -82,13 +82,14 @@ interface BoardProps {
   pendingToken?: Token | null;
   pendingDice?: number[];
   onDieSelect?: (die: number) => void;
+  rotationDeg?: number;
   boardTheme?: string;
   tokenStyle?: string;
   tokenImages?: Partial<Record<PlayerColor, string>>;
   onTokenStep?: () => void;
 }
 
-export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, boardTheme = 'classic', tokenStyle = 'classic', tokenImages, onTokenStep }) => {
+export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, rotationDeg = 0, boardTheme = 'classic', tokenStyle = 'classic', tokenImages, onTokenStep }) => {
   const getTokensAtPos = (pos: number, tokenColor?: PlayerColor) => {
     return tokens.filter(t => t.position === pos && (pos !== -1 || t.color === tokenColor));
   };
@@ -165,6 +166,9 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
           width: 'clamp(100%, 100vmin, 800px)',
           height: 'clamp(100%, 100vmin, 800px)',
           minWidth: '100%',
+          transform: `rotate(${rotationDeg}deg)`,
+          transformOrigin: 'center center',
+          transition: 'transform 220ms ease-out',
         }}
       >
         <img
