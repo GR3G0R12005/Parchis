@@ -22,6 +22,19 @@ interface BoardTheme {
   price_gems: number;
 }
 
+interface TokenStyle {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  is_active: boolean;
+  price_gems: number;
+  image_red?: string;
+  image_yellow?: string;
+  image_green?: string;
+  image_blue?: string;
+}
+
 interface Statistics {
   activeGames: number;
   activeUsers: number;
@@ -52,6 +65,7 @@ export const AdminPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'packages' | 'boards' | 'tokens'>('dashboard');
   const [packages, setPackages] = useState<StorePackage[]>([]);
   const [boards, setBoards] = useState<BoardTheme[]>([]);
+  const [tokens, setTokens] = useState<TokenStyle[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -73,6 +87,14 @@ export const AdminPanel: React.FC = () => {
   const [boardDisplay, setBoardDisplay] = useState('');
   const [boardPrice, setBoardPrice] = useState(0);
   const [editingBoard, setEditingBoard] = useState<Partial<BoardTheme> | null>(null);
+
+  // Token style upload states
+  const [uploadingToken, setUploadingToken] = useState(false);
+  const [tokenName, setTokenName] = useState('');
+  const [tokenDisplay, setTokenDisplay] = useState('');
+  const [tokenPrice, setTokenPrice] = useState(0);
+  const [tokenColorFiles, setTokenColorFiles] = useState<Record<string, File | null>>({ red: null, yellow: null, green: null, blue: null });
+  const [tokenColorPreviews, setTokenColorPreviews] = useState<Record<string, string | null>>({ red: null, yellow: null, green: null, blue: null });
 
   const loadStats = useCallback(async () => {
     try {
@@ -124,13 +146,30 @@ export const AdminPanel: React.FC = () => {
     }
   }, []);
 
+  const loadTokens = useCallback(async () => {
+    try {
+      const data = await safeFetch('/api/admin/token-styles', {
+        headers: getAuthHeaders(),
+      });
+      if (Array.isArray(data)) {
+        setTokens(data);
+      } else {
+        setTokens([]);
+      }
+    } catch (e: any) {
+      console.error('Tokens load failed:', e);
+      setTokens([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadPackages();
     loadBoards();
+    loadTokens();
     loadStats();
     const interval = setInterval(loadStats, 10000);
     return () => clearInterval(interval);
-  }, [loadPackages, loadBoards, loadStats]);
+  }, [loadPackages, loadBoards, loadTokens, loadStats]);
 
   // Auto-dismiss alerts
   useEffect(() => {
@@ -275,6 +314,57 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  const handleTokenColorFile = (color: string, file: File | null) => {
+    setTokenColorFiles(prev => ({ ...prev, [color]: file }));
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => setTokenColorPreviews(prev => ({ ...prev, [color]: reader.result as string }));
+      reader.readAsDataURL(file);
+    } else {
+      setTokenColorPreviews(prev => ({ ...prev, [color]: null }));
+    }
+  };
+
+  const handleUploadToken = async () => {
+    if (!tokenName || !tokenDisplay) { setError('Completa nombre e ID'); return; }
+    const hasAny = Object.values(tokenColorFiles).some(f => f !== null);
+    if (!hasAny) { setError('Sube al menos una imagen de color'); return; }
+    try {
+      setUploadingToken(true);
+      const toBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve((r.result as string).split(',')[1]);
+        r.onerror = reject;
+        r.readAsDataURL(file);
+      });
+      const body: Record<string, any> = {
+        name: tokenName,
+        display_name: tokenDisplay,
+        description: '',
+        price_gems: tokenPrice,
+      };
+      for (const color of ['red', 'yellow', 'green', 'blue']) {
+        if (tokenColorFiles[color]) {
+          body[`image_${color}`] = await toBase64(tokenColorFiles[color]!);
+        }
+      }
+      await safeFetch('/api/admin/token-styles/upload', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(body),
+      });
+      setSuccess('Fichas subidas!');
+      setTokenName(''); setTokenDisplay(''); setTokenPrice(0);
+      setTokenColorFiles({ red: null, yellow: null, green: null, blue: null });
+      setTokenColorPreviews({ red: null, yellow: null, green: null, blue: null });
+      loadTokens();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setUploadingToken(false);
+    }
+  };
+
   const tabs = [
     { id: 'dashboard' as const, label: 'Stats', icon: BarChart3 },
     { id: 'packages' as const, label: 'Packs', icon: Package },
@@ -369,7 +459,7 @@ export const AdminPanel: React.FC = () => {
           </div>
 
           <button
-            onClick={() => { loadStats(); loadPackages(); loadBoards(); }}
+            onClick={() => { loadStats(); loadPackages(); loadBoards(); loadTokens(); }}
             className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 flex items-center justify-center gap-2 text-white/40 text-xs font-bold active:scale-[0.98] transition-transform"
           >
             <RefreshCw className="w-4 h-4" /> Actualizar todo
@@ -721,34 +811,138 @@ export const AdminPanel: React.FC = () => {
       {/* ==================== TOKENS ==================== */}
       {activeTab === 'tokens' && (
         <div className="space-y-4">
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
-            <p className="text-white/50 text-sm leading-relaxed">
-              Los estilos de fichas se configuran desde el codigo. Para agregar nuevos estilos, actualiza el ColorMap en Board.tsx.
-            </p>
+          {/* Upload Form */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+            <h3 className="text-white font-bold text-sm uppercase tracking-widest flex items-center gap-2">
+              <Upload className="w-4 h-4 text-purple-400" /> Subir Fichas Custom
+            </h3>
+
+            {/* 4 color image pickers */}
+            <div className="grid grid-cols-2 gap-3">
+              {(['red', 'yellow', 'green', 'blue'] as const).map((color) => {
+                const colorLabels: Record<string, string> = { red: 'Rojo', yellow: 'Amarillo', green: 'Verde', blue: 'Azul' };
+                const colorBg: Record<string, string> = { red: '#FF4081', yellow: '#FFEB3B', green: '#00E676', blue: '#448AFF' };
+                const preview = tokenColorPreviews[color];
+                return (
+                  <label key={color} className="block cursor-pointer">
+                    <div className={cn(
+                      'w-full rounded-xl border-2 border-dashed transition-all flex flex-col items-center justify-center overflow-hidden',
+                      preview ? 'border-green-500/50 p-0' : 'border-white/20 p-4 active:border-purple-500/50'
+                    )}>
+                      {preview ? (
+                        <div className="relative w-full">
+                          <img src={preview} alt={color} className="w-full h-20 object-cover" />
+                          <button
+                            onClick={(e) => { e.preventDefault(); handleTokenColorFile(color, null); }}
+                            className="absolute top-1 right-1 bg-black/60 p-1 rounded-lg"
+                          >
+                            <X className="w-3 h-3 text-white" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="w-8 h-8 rounded-full mb-1.5 border-2 border-white/20" style={{ backgroundColor: colorBg[color] }} />
+                          <p className="text-white/40 text-[10px] font-bold">{colorLabels[color]}</p>
+                        </>
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => handleTokenColorFile(color, e.target.files?.[0] || null)}
+                      className="hidden"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+
+            <input
+              type="text"
+              value={tokenName}
+              onChange={(e) => setTokenName(e.target.value.toLowerCase().replace(/\s/g, '-'))}
+              placeholder="ID del estilo (ej: dragons, pixels)"
+              className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-purple-500/50 placeholder:text-white/30"
+            />
+
+            <input
+              type="text"
+              value={tokenDisplay}
+              onChange={(e) => setTokenDisplay(e.target.value)}
+              placeholder="Nombre visible (ej: Dragon Tokens)"
+              className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-purple-500/50 placeholder:text-white/30"
+            />
+
+            <input
+              type="number"
+              value={tokenPrice}
+              onChange={(e) => setTokenPrice(parseInt(e.target.value) || 0)}
+              placeholder="Precio en gemas (0 = gratis)"
+              className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-purple-500/50 placeholder:text-white/30"
+            />
+
+            <button
+              onClick={handleUploadToken}
+              disabled={uploadingToken || !tokenName || !tokenDisplay}
+              className="w-full bg-purple-500 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 disabled:opacity-30 active:scale-[0.98] transition-transform"
+            >
+              <Upload className="w-4 h-4" />
+              {uploadingToken ? 'Subiendo...' : 'Subir Fichas'}
+            </button>
           </div>
 
-          {/* Current token styles preview */}
-          {[
-            { name: 'Classic', colors: { red: '#FF4081', yellow: '#FFEB3B', green: '#00E676', blue: '#448AFF' } },
-            { name: 'Gems', colors: { red: '#FF1744', yellow: '#FFEA00', green: '#76FF03', blue: '#00B0FF' } },
-            { name: 'Medieval', colors: { red: '#DC143C', yellow: '#FFD700', green: '#228B22', blue: '#3B82F6' } },
-            { name: 'Cosmic', colors: { red: '#FF006E', yellow: '#FFBE0B', green: '#06FFA5', blue: '#3A86FF' } },
-          ].map((style) => (
-            <div key={style.name} className="bg-white/5 border border-white/10 rounded-2xl p-4">
-              <p className="text-white font-bold text-sm mb-3">{style.name}</p>
-              <div className="flex gap-3">
-                {Object.entries(style.colors).map(([color, hex]) => (
-                  <div key={color} className="flex flex-col items-center gap-1.5">
-                    <div
-                      className="w-9 h-9 rounded-full border-2 border-white/20 shadow-lg"
-                      style={{ background: `radial-gradient(circle at 30% 30%, ${hex}aa, ${hex})` }}
-                    />
-                    <span className="text-[9px] text-white/40 uppercase">{color}</span>
-                  </div>
-                ))}
+          {/* Existing token styles */}
+          <div className="space-y-3">
+            {tokens.length === 0 && (
+              <div className="text-center py-8 text-white/30">
+                <Sparkles className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                <p className="text-sm font-bold">No hay fichas custom</p>
+                <p className="text-xs mt-1">Sube un set con el formulario de arriba</p>
               </div>
-            </div>
-          ))}
+            )}
+
+            {tokens.map((tok) => (
+              <motion.div
+                key={tok.id}
+                layout
+                className="bg-white/5 border border-white/10 rounded-2xl p-4"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-white font-bold text-sm">{tok.display_name}</h3>
+                    <p className="text-white/30 text-[10px] font-mono">{tok.name}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-purple-400 font-bold text-sm">{tok.price_gems} 💎</span>
+                    <span className={cn(
+                      'px-2 py-0.5 rounded-full text-[10px] font-bold',
+                      tok.is_active ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
+                    )}>
+                      {tok.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  {(['red', 'yellow', 'green', 'blue'] as const).map((color) => {
+                    const img = tok[`image_${color}`];
+                    const fallback: Record<string, string> = { red: '#FF4081', yellow: '#FFEB3B', green: '#00E676', blue: '#448AFF' };
+                    return (
+                      <div key={color} className="flex flex-col items-center gap-1">
+                        {img ? (
+                          <img src={img} alt={color} className="w-10 h-10 rounded-full object-cover border-2 border-white/20 shadow-lg" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full border-2 border-dashed border-white/20 flex items-center justify-center">
+                            <span className="text-white/20 text-[8px]">N/A</span>
+                          </div>
+                        )}
+                        <span className="text-[8px] text-white/30 uppercase">{color}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
       )}
     </div>

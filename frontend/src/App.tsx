@@ -14,7 +14,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { Trophy, Users, Coins, X, ShoppingBag, Settings as SettingsIcon, Key, Flag, RotateCcw, Dice1, Check, LogOut, Gem, Palette, Shield, Package, Image, Sparkles } from 'lucide-react';
 
 // --- Modal Component ---
-const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string, children: React.ReactNode }> = ({ isOpen, onClose, title, children }) => (
+const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; small?: boolean }> = ({ isOpen, onClose, title, children, small }) => (
   <AnimatePresence>
     {isOpen && (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -29,15 +29,15 @@ const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string, chi
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="bg-[#1E293B] border border-white/10 w-full max-w-2xl rounded-[3rem] shadow-2xl relative overflow-hidden flex flex-col max-h-[80vh]"
+          className={cn("bg-[#1E293B] border border-white/10 w-full rounded-[2rem] shadow-2xl relative overflow-hidden flex flex-col max-h-[80vh]", small ? "max-w-sm" : "max-w-2xl rounded-[3rem]")}
         >
-          <div className="p-8 border-b border-white/5 flex justify-between items-center">
-            <h2 className="font-heading text-4xl text-white tracking-widest uppercase">{title}</h2>
+          <div className={cn("border-b border-white/5 flex justify-between items-center", small ? "p-5" : "p-8")}>
+            <h2 className={cn("font-heading text-white tracking-widest uppercase", small ? "text-2xl" : "text-4xl")}>{title}</h2>
             <button onClick={onClose} className="bg-white/5 hover:bg-white/10 p-2 rounded-2xl transition-all pointer-events-auto">
-              <X className="w-6 h-6 text-white" />
+              <X className="w-5 h-5 text-white" />
             </button>
           </div>
-          <div className="p-8 overflow-y-auto no-scrollbar flex-1 pointer-events-auto">
+          <div className={cn("overflow-y-auto no-scrollbar flex-1 pointer-events-auto", small ? "p-5" : "p-8")}>
             {children}
           </div>
         </motion.div>
@@ -93,6 +93,10 @@ export default function App() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [roomCode, setRoomCode] = useState<string | null>(null);
   const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [pendingInviteCode] = useState<string | null>(() => {
+    const match = window.location.pathname.match(/^\/join\/([A-Z0-9]{4,8})$/i);
+    return match ? match[1].toUpperCase() : null;
+  });
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [pendingRejoin, setPendingRejoin] = useState<GameSession | null>(null);
   const [turnSecondsLeft, setTurnSecondsLeft] = useState(TURN_DURATION_SECONDS);
@@ -101,7 +105,7 @@ export default function App() {
   const [purchaseConfirm, setPurchaseConfirm] = useState<{ type: 'coins' | 'gems' | 'board' | 'token'; amount: number; packName: string; itemId?: string } | null>(null);
   const [storePackages, setStorePackages] = useState<{ id: string; type: 'coins' | 'gems'; name: string; amount: number; price_usd: number }[]>([]);
   const [storeBoards, setStoreBoards] = useState<{ id: string; name: string; display_name: string; description: string; image_url: string; price_gems: number }[]>([]);
-  const [storeTokens, setStoreTokens] = useState<{ id: string; name: string; display_name: string; description: string; price_gems: number }[]>([]);
+  const [storeTokens, setStoreTokens] = useState<{ id: string; name: string; display_name: string; description: string; price_gems: number; image_red?: string; image_yellow?: string; image_green?: string; image_blue?: string }[]>([]);
   const [myPurchases, setMyPurchases] = useState<{ item_type: string; item_id: string }[]>([]);
   const [shopTab, setShopTab] = useState<'packs' | 'boards' | 'tokens'>('packs');
   const [showProfilePopup, setShowProfilePopup] = useState(false);
@@ -120,6 +124,23 @@ export default function App() {
     return saved !== null ? parseFloat(saved) : 0.3;
   });
   const audioRef = React.useRef<HTMLAudioElement>(null);
+  const diceSoundRef = React.useRef<HTMLAudioElement>(null);
+  const tokenSoundRef = React.useRef<HTMLAudioElement>(null);
+
+  const playTokenStep = React.useCallback(() => {
+    const audio = tokenSoundRef.current;
+    if (!audio) return;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  }, []);
+
+  const playDiceSound = React.useCallback(() => {
+    const audio = diceSoundRef.current;
+    if (!audio) return;
+    audio.currentTime = 0;
+    audio.playbackRate = 1.25;
+    audio.play().catch(() => {});
+  }, []);
 
   // Persist music settings
   useEffect(() => {
@@ -247,31 +268,35 @@ export default function App() {
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (musicEnabled) {
-      audio.volume = musicVolume;
-      audio.muted = false; // Unmute when music is enabled
-
-      // Try to play with autoplay
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .catch(error => {
-            console.log('Autoplay blocked, waiting for user interaction...');
-            // If autoplay is blocked, set up a one-time listener
-            const playOnInteraction = () => {
-              audio.muted = false;
-              audio.play().catch(e => console.log('Play failed:', e));
-              document.removeEventListener('click', playOnInteraction);
-              document.removeEventListener('touchstart', playOnInteraction);
-            };
-            document.addEventListener('click', playOnInteraction);
-            document.addEventListener('touchstart', playOnInteraction);
-          });
-      }
-    } else {
+    if (!musicEnabled) {
       audio.pause();
       audio.muted = true;
+      return;
     }
+
+    audio.volume = musicVolume;
+    audio.muted = false;
+
+    const tryPlay = () => {
+      if (!audioRef.current || !musicEnabled) return;
+      audioRef.current.muted = false;
+      audioRef.current.play().catch(() => {});
+    };
+
+    // Attempt immediately
+    tryPlay();
+
+    // Also register interaction listeners so it starts on first user action
+    // even if autoplay was blocked (browsers require interaction after reload)
+    window.addEventListener('click', tryPlay, { once: true });
+    window.addEventListener('touchstart', tryPlay, { once: true });
+    window.addEventListener('keydown', tryPlay, { once: true });
+
+    return () => {
+      window.removeEventListener('click', tryPlay);
+      window.removeEventListener('touchstart', tryPlay);
+      window.removeEventListener('keydown', tryPlay);
+    };
   }, [musicEnabled, musicVolume]);
 
   // Socket Connection (Mock/Local Server)
@@ -355,6 +380,20 @@ export default function App() {
       socket.emit('check-room', { roomId: session.roomCode, id: session.id });
     }
   }, [socket, currentUser]);
+
+  // Auto-join from invite link (/join/XXXX)
+  useEffect(() => {
+    if (!socket || !currentUser || !pendingInviteCode || view !== 'lobby') return;
+    // Don't auto-join if there's already a session to rejoin
+    const session = loadSession();
+    if (session && session.id === currentUser.id) return;
+    const code = pendingInviteCode;
+    setRoomCode(code);
+    setView('waiting-room');
+    socket.emit('join-room', { roomId: code, id: currentUser.id });
+    saveSession({ roomCode: code, myColor: 'red', id: currentUser.id });
+    window.history.replaceState(null, '', '/');
+  }, [socket, currentUser, pendingInviteCode, view]);
 
   // Auto rejoin if there's a pending rejoin
   useEffect(() => {
@@ -800,11 +839,13 @@ export default function App() {
       {/* Background Music */}
       <audio
         ref={audioRef}
-        src="https://supabase.cloudteco.com/storage/v1/object/public/assets/music/Parchisi_Dreams.mp3"
+        src="https://supabase.cloudteco.com/storage/v1/object/public/assets/music/Parchis_Dreams.mp3"
         loop
         preload="auto"
         muted
       />
+      <audio ref={diceSoundRef} src="https://supabase.cloudteco.com/storage/v1/object/public/assets/music/movimiento-dados.mp3" preload="auto" />
+      <audio ref={tokenSoundRef} src="https://supabase.cloudteco.com/storage/v1/object/public/assets/music/movimiento-fichas.mp3" preload="auto" />
 
       {/* Background Effect */}
       <div className="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
@@ -964,6 +1005,7 @@ export default function App() {
                   medieval: { red: '#DC143C', yellow: '#FFD700', green: '#228B22', blue: '#3B82F6' },
                   cosmic: { red: '#FF006E', yellow: '#FFBE0B', green: '#06FFA5', blue: '#3A86FF' },
                 };
+                const hasImages = tok.image_red || tok.image_yellow || tok.image_green || tok.image_blue;
                 const colors = tokenColorMaps[tok.name] || tokenColorMaps.classic;
                 return (
                   <button
@@ -980,9 +1022,18 @@ export default function App() {
                   >
                     <span className="text-white text-[11px] font-bold">{tok.display_name}</span>
                     <div className="flex gap-1.5">
-                      {Object.entries(colors).map(([c, hex]) => (
-                        <div key={c} className="w-5 h-5 rounded-full border border-white/20" style={{ background: `radial-gradient(circle at 30% 30%, ${hex}aa, ${hex})` }} />
-                      ))}
+                      {hasImages ? (
+                        ['red', 'yellow', 'green', 'blue'].map(c => {
+                          const img = tok[`image_${c}` as keyof typeof tok] as string | undefined;
+                          return img
+                            ? <img key={c} src={img} alt={c} className="w-5 h-5 rounded-full object-cover border border-white/20" />
+                            : <div key={c} className="w-5 h-5 rounded-full border border-white/20 bg-white/10" />;
+                        })
+                      ) : (
+                        Object.entries(colors).map(([c, hex]) => (
+                          <div key={c} className="w-5 h-5 rounded-full border border-white/20" style={{ background: `radial-gradient(circle at 30% 30%, ${hex}aa, ${hex})` }} />
+                        ))
+                      )}
                     </div>
                   </button>
                 );
@@ -1105,16 +1156,32 @@ export default function App() {
               <div className="text-center">
                 <span className="text-[8px] sm:text-[10px] text-yellow-500 font-black uppercase tracking-[0.4em] mb-2 sm:mb-4 block">Waiting Room</span>
                 <h2 className="font-heading text-3xl sm:text-5xl md:text-6xl text-white mb-1 sm:mb-2 leading-none">INVITE FRIENDS</h2>
-                <div className="bg-white/5 border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-3 sm:p-6 mt-4 sm:mt-8 flex flex-col items-center gap-1 sm:gap-2 group cursor-pointer hover:bg-white/10 transition-all"
-                  onClick={() => {
-                    navigator.clipboard.writeText(roomCode || '');
-                    showToast('Code copied to clipboard!');
-                  }}>
-                  <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase tracking-widest">Room Code</span>
-                  <div className="flex items-center gap-2 sm:gap-4">
-                    <span className="font-heading text-3xl sm:text-5xl md:text-6xl text-yellow-500 tracking-[0.15em] sm:tracking-[0.2em]">{roomCode}</span>
-                    <Key className="w-5 h-5 sm:w-8 sm:h-8 text-yellow-500/50" />
+                <div className="mt-4 sm:mt-8 flex flex-col items-center gap-3">
+                  <div className="bg-white/5 border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-3 sm:p-6 flex flex-col items-center gap-1 sm:gap-2 group cursor-pointer hover:bg-white/10 transition-all w-full"
+                    onClick={() => {
+                      navigator.clipboard.writeText(roomCode || '');
+                      showToast('Código copiado!');
+                    }}>
+                    <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase tracking-widest">Room Code</span>
+                    <div className="flex items-center gap-2 sm:gap-4">
+                      <span className="font-heading text-3xl sm:text-5xl md:text-6xl text-yellow-500 tracking-[0.15em] sm:tracking-[0.2em]">{roomCode}</span>
+                      <Key className="w-5 h-5 sm:w-8 sm:h-8 text-yellow-500/50" />
+                    </div>
                   </div>
+                  <button
+                    onClick={() => {
+                      const link = `${window.location.origin}/join/${roomCode}`;
+                      navigator.clipboard.writeText(link);
+                      showToast('Enlace copiado!');
+                    }}
+                    className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl px-4 py-2.5 text-white/60 text-xs font-bold uppercase tracking-widest transition-all active:scale-95"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                    </svg>
+                    Copiar Enlace
+                  </button>
                 </div>
               </div>
 
@@ -1204,6 +1271,7 @@ export default function App() {
                     lastDiceRoll={gameState?.lastDiceRoll}
                     remainingDice={gameState?.remainingDice || []}
                     onRoll={handleRollDice}
+                    onRollStart={playDiceSound}
                     onPassDie={handlePassDie}
                     turnProgress={turnProgress}
                     turnSecondsLeft={Math.ceil(turnSecondsLeft)}
@@ -1220,6 +1288,17 @@ export default function App() {
                   onDieSelect={handleDieSelect}
                   boardTheme={customization.boardTheme}
                   tokenStyle={customization.tokenStyle}
+                  onTokenStep={playTokenStep}
+                  tokenImages={(() => {
+                    const tok = storeTokens.find(t => t.name === customization.tokenStyle);
+                    if (!tok?.image_red && !tok?.image_yellow && !tok?.image_green && !tok?.image_blue) return undefined;
+                    return {
+                      red: tok.image_red,
+                      yellow: tok.image_yellow,
+                      green: tok.image_green,
+                      blue: tok.image_blue,
+                    } as any;
+                  })()}
                 />
 
                 {/* Bottom player row: yellow (left), blue (right) */}
@@ -1234,6 +1313,7 @@ export default function App() {
                     lastDiceRoll={gameState?.lastDiceRoll}
                     remainingDice={gameState?.remainingDice || []}
                     onRoll={handleRollDice}
+                    onRollStart={playDiceSound}
                     onPassDie={handlePassDie}
                     turnProgress={turnProgress}
                     turnSecondsLeft={Math.ceil(turnSecondsLeft)}
@@ -1431,6 +1511,7 @@ export default function App() {
                       medieval: { red: '#DC143C', yellow: '#FFD700', green: '#228B22', blue: '#3B82F6' },
                       cosmic: { red: '#FF006E', yellow: '#FFBE0B', green: '#06FFA5', blue: '#3A86FF' },
                     };
+                    const hasImages = tok.image_red || tok.image_yellow || tok.image_green || tok.image_blue;
                     const colors = tokenColorMaps[tok.name] || tokenColorMaps.classic;
                     return (
                       <div
@@ -1442,13 +1523,14 @@ export default function App() {
                       >
                         <span className="font-bold text-white text-sm">{tok.display_name}</span>
                         <div className="flex gap-2">
-                          {['red', 'yellow', 'green', 'blue'].map((c) => (
-                            <div
-                              key={c}
-                              className="w-8 h-8 rounded-full border-2 border-white/20 shadow-lg"
-                              style={{ backgroundColor: colors[c] }}
-                            />
-                          ))}
+                          {['red', 'yellow', 'green', 'blue'].map((c) => {
+                            const img = hasImages ? tok[`image_${c}` as keyof typeof tok] as string | undefined : undefined;
+                            return img ? (
+                              <img key={c} src={img} alt={c} className="w-8 h-8 rounded-full object-cover border-2 border-white/20 shadow-lg" />
+                            ) : (
+                              <div key={c} className="w-8 h-8 rounded-full border-2 border-white/20 shadow-lg" style={{ backgroundColor: colors[c] }} />
+                            );
+                          })}
                         </div>
                         <div className="flex items-center gap-1">
                           {tok.price_gems === 0 && (
@@ -1502,25 +1584,24 @@ export default function App() {
 
 
 
-      <Modal isOpen={activeModal === 'join-room'} onClose={() => { setActiveModal(null); setActiveTab('home'); }} title="Join Private Match">
-        <form onSubmit={handleJoinByCode} className="flex flex-col items-center gap-6 py-4">
-          <div className="bg-yellow-500/20 p-4 rounded-full mb-2">
-            <Key className="w-8 h-8 text-yellow-500" />
-          </div>
-          <div className="text-center">
-            <p className="text-white font-bold">Enter the 6-digit room code</p>
-            <p className="text-white/40 text-xs">Ask your friend for the code to join their game</p>
+      <Modal isOpen={activeModal === 'join-room'} onClose={() => { setActiveModal(null); setActiveTab('home'); }} title="Unirse" small>
+        <form onSubmit={handleJoinByCode} className="flex flex-col items-center gap-4">
+          <div className="flex items-center gap-3 w-full">
+            <div className="bg-yellow-500/20 p-2.5 rounded-xl flex-shrink-0">
+              <Key className="w-5 h-5 text-yellow-500" />
+            </div>
+            <p className="text-white/50 text-xs">Pide el código a tu amigo</p>
           </div>
           <input
             type="text"
-            placeholder="CODE"
-            maxLength={6}
+            placeholder="CÓDIGO"
+            maxLength={8}
             value={joinCodeInput}
             onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-            className="w-full max-w-xs bg-white/5 border border-white/10 rounded-2xl py-6 text-center text-4xl font-heading tracking-[0.5em] text-white focus:outline-none focus:border-yellow-500/50 transition-all uppercase"
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 text-center text-2xl font-heading tracking-[0.4em] text-white focus:outline-none focus:border-yellow-500/50 transition-all uppercase"
           />
-          <button type="submit" className="w-full max-w-xs bg-yellow-500 text-slate-900 font-heading text-2xl py-4 rounded-3xl shadow-xl hover:scale-[1.05] active:scale-95 transition-all uppercase tracking-widest">
-            ENTER ARENA
+          <button type="submit" className="w-full bg-yellow-500 text-slate-900 font-heading text-base py-3 rounded-xl shadow-xl hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest">
+            Entrar
           </button>
         </form>
       </Modal>

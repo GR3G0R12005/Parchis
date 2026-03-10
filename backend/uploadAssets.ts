@@ -37,9 +37,19 @@ async function uploadAssets() {
         description: 'SVG board backup',
       },
       {
-        localPath: 'C:/Users/Angel/OneDrive/Documents/Trabajo-T-ECO/Ludo/frontend/public/music/Parchisi_Dreams.mp3',
-        storagePath: 'music/Parchisi_Dreams.mp3',
+        localPath: 'C:/Users/Angel/OneDrive/Documents/Trabajo-T-ECO/Ludo/frontend/public/music/Parchis_Dreams.mp3',
+        storagePath: 'music/Parchis_Dreams.mp3',
         description: 'Background music',
+      },
+      {
+        localPath: 'C:/Users/Angel/OneDrive/Documents/Trabajo-T-ECO/Ludo/frontend/public/music/movimiento-fichas.mp3',
+        storagePath: 'music/movimiento-fichas.mp3',
+        description: 'Token movement sound',
+      },
+      {
+        localPath: 'C:/Users/Angel/OneDrive/Documents/Trabajo-T-ECO/Ludo/frontend/public/music/movimiento-dados.mp3',
+        storagePath: 'music/movimiento-dados.mp3',
+        description: 'Dice roll sound',
       },
     ];
 

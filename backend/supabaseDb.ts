@@ -400,10 +400,10 @@ export const supabaseDbService = {
     return data || [];
   },
 
-  createTokenStyle: async (name: string, displayName: string, description: string): Promise<any> => {
+  createTokenStyle: async (name: string, displayName: string, description: string, images?: { image_red?: string; image_yellow?: string; image_green?: string; image_blue?: string }): Promise<any> => {
     const { data, error } = await supabaseAdmin
       .from('token_styles')
-      .insert([{ name, display_name: displayName, description }])
+      .insert([{ name, display_name: displayName, description, ...images }])
       .select()
       .single();
 
