@@ -314,6 +314,9 @@ async function startServer() {
   const disconnectTimers = new Map<string, NodeJS.Timeout>();
   const disconnectedPlayers = new Map<string, Set<string>>();
 
+  // Track which sockets are in media per room: roomId → Map<socketId, peerInfo>
+  const mediaRooms = new Map<string, Map<string, { userId: string; username: string; avatar: string }>>();
+
   // --- CONSTANTS ---
   const BOARD_SIZE = 68; // 68 squares on main path
   const FINAL_PATH_LENGTH = 7; // 7 squares in final corridor (positions 69-75)
@@ -1331,6 +1334,79 @@ async function startServer() {
       }
     });
 
+    // --- CHAT ---
+    socket.on("chat-message", ({ roomId, text, userId, username, avatar }) => {
+      if (!text || !roomId) return;
+      io.to(roomId).emit("chat-message", {
+        id: uuidv4(),
+        userId,
+        username,
+        avatar,
+        text,
+        ts: Date.now(),
+      });
+    });
+
+    // --- WEBRTC SIGNALING ---
+
+    // Player wants to join the media session
+    socket.on("join-media", ({ roomId, userId, username, avatar }) => {
+      if (!mediaRooms.has(roomId)) mediaRooms.set(roomId, new Map());
+      const roomMedia = mediaRooms.get(roomId)!;
+
+      // Tell the joining player who's already in media
+      const existingPeers = Array.from(roomMedia.entries()).map(([sid, info]) => ({
+        socketId: sid,
+        ...info,
+      }));
+      socket.emit("media-peers", existingPeers);
+
+      // Add to the room's media set
+      roomMedia.set(socket.id, { userId, username, avatar });
+
+      // Notify the others that a new peer joined
+      socket.to(roomId).emit("peer-joined-media", {
+        socketId: socket.id,
+        userId,
+        username,
+        avatar,
+      });
+    });
+
+    // Player leaves the media session (stops mic/camera)
+    socket.on("leave-media", ({ roomId }) => {
+      const roomMedia = mediaRooms.get(roomId);
+      if (roomMedia) {
+        roomMedia.delete(socket.id);
+        if (roomMedia.size === 0) mediaRooms.delete(roomId);
+      }
+      socket.to(roomId).emit("peer-left-media", { socketId: socket.id });
+    });
+
+    // Relay WebRTC offer to the target peer
+    socket.on("webrtc-offer", ({ to, offer }) => {
+      io.to(to).emit("webrtc-offer", { from: socket.id, offer });
+    });
+
+    // Relay WebRTC answer to the target peer
+    socket.on("webrtc-answer", ({ to, answer }) => {
+      io.to(to).emit("webrtc-answer", { from: socket.id, answer });
+    });
+
+    // Relay ICE candidate to the target peer
+    socket.on("webrtc-ice", ({ to, candidate }) => {
+      io.to(to).emit("webrtc-ice", { from: socket.id, candidate });
+    });
+
+    // Relay camera frames to all other players in the room
+    socket.on("video-frame", ({ roomId, userId, frame }) => {
+      if (!roomId || !frame) return;
+      const roomSockets = io.sockets.adapter.rooms.get(roomId);
+      const count = roomSockets ? roomSockets.size - 1 : 0;
+      console.log(`[video-frame] room=${roomId} sender=${socket.id.slice(-6)} relaying to ${count} peer(s)`);
+      socket.to(roomId).emit("video-frame", { userId, frame });
+    });
+
     // --- SURRENDER ---
     socket.on("surrender", ({ roomId, id }) => {
       const room = rooms.get(roomId);
@@ -1378,6 +1454,16 @@ async function startServer() {
     // --- DISCONNECT ---
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
+
+      // Clean up media session
+      for (const [roomId, roomMedia] of mediaRooms.entries()) {
+        if (roomMedia.has(socket.id)) {
+          roomMedia.delete(socket.id);
+          socket.to(roomId).emit("peer-left-media", { socketId: socket.id });
+          if (roomMedia.size === 0) mediaRooms.delete(roomId);
+        }
+      }
+
       for (const [roomId, room] of rooms.entries()) {
         const playerIndex = room.players.findIndex((p: any) => p.socketId === socket.id);
         if (playerIndex === -1) continue;
@@ -1626,6 +1712,23 @@ async function startServer() {
       });
 
       res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Delete board theme
+  app.delete("/api/admin/board-themes/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      await supabaseDbService.deleteBoardTheme(req.params.id);
+      res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

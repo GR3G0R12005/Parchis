@@ -296,17 +296,39 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  const handleUpdateBoardPrice = async (board: BoardTheme) => {
+  const handleUpdateBoard = async (board: BoardTheme) => {
     try {
       setLoading(true);
       await safeFetch(`/api/admin/board-themes/${board.id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ price_gems: board.price_gems }),
+        body: JSON.stringify({
+          display_name: board.display_name,
+          description: board.description,
+          is_active: board.is_active,
+          price_gems: board.price_gems,
+        }),
       });
-      setSuccess('Precio actualizado!');
+      setSuccess('Tablero actualizado!');
       loadBoards();
       setEditingBoard(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteBoard = async (id: string) => {
+    if (!confirm('Eliminar este tablero?')) return;
+    try {
+      setLoading(true);
+      await safeFetch(`/api/admin/board-themes/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      setSuccess('Tablero eliminado!');
+      loadBoards();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -743,16 +765,45 @@ export const AdminPanel: React.FC = () => {
               >
                 {editingBoard?.id === board.id ? (
                   <div className="p-4 space-y-3">
-                    <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Precio en Gemas</label>
-                    <input
-                      type="number"
-                      value={editingBoard.price_gems || 0}
-                      onChange={(e) => setEditingBoard({ ...editingBoard, price_gems: parseInt(e.target.value) || 0 })}
-                      className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
-                    />
+                    <div className="space-y-2">
+                      <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Nombre visible</label>
+                      <input
+                        type="text"
+                        value={editingBoard.display_name || ''}
+                        onChange={(e) => setEditingBoard({ ...editingBoard, display_name: e.target.value })}
+                        className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Descripcion</label>
+                      <textarea
+                        value={editingBoard.description || ''}
+                        onChange={(e) => setEditingBoard({ ...editingBoard, description: e.target.value })}
+                        className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50 resize-none"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-3 py-2">
+                      <label className="text-xs text-white/80 font-bold">Activo</label>
+                      <input
+                        type="checkbox"
+                        checked={editingBoard.is_active ?? true}
+                        onChange={(e) => setEditingBoard({ ...editingBoard, is_active: e.target.checked })}
+                        className="w-4 h-4 accent-green-500"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Precio en Gemas</label>
+                      <input
+                        type="number"
+                        value={editingBoard.price_gems || 0}
+                        onChange={(e) => setEditingBoard({ ...editingBoard, price_gems: parseInt(e.target.value) || 0 })}
+                        className="w-full bg-white/10 border border-white/20 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-blue-500/50"
+                      />
+                    </div>
                     <div className="flex gap-2 pt-1">
                       <button
-                        onClick={() => handleUpdateBoardPrice(editingBoard as BoardTheme)}
+                        onClick={() => handleUpdateBoard(editingBoard as BoardTheme)}
                         disabled={loading}
                         className="flex-1 bg-green-500 text-white font-bold py-3 rounded-xl text-sm active:scale-95 transition-transform disabled:opacity-50"
                       >
@@ -792,12 +843,20 @@ export const AdminPanel: React.FC = () => {
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-purple-400 font-bold text-sm">{board.price_gems} 💎</span>
-                        <button
-                          onClick={() => setEditingBoard(board)}
-                          className="bg-blue-500/15 text-blue-300 font-bold py-2 px-3 rounded-xl text-xs active:scale-95 transition-transform"
-                        >
-                          Editar Precio
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setEditingBoard(board)}
+                            className="bg-blue-500/15 text-blue-300 font-bold py-2 px-3 rounded-xl text-xs flex items-center gap-1.5 active:scale-95 transition-transform"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Editar
+                          </button>
+                          <button
+                            onClick={() => handleDeleteBoard(board.id)}
+                            className="bg-red-500/15 text-red-300 font-bold py-2 px-3 rounded-xl text-xs flex items-center gap-1.5 active:scale-95 transition-transform"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </>

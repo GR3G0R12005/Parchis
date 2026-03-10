@@ -11,6 +11,7 @@ import { customizationService, CustomizationSettings } from './services/customiz
 import { AuthView } from './components/AuthView';
 import { CustomizationModal } from './components/CustomizationModal';
 import { AdminPanel } from './components/AdminPanel';
+import { GameComms } from './components/GameComms';
 import { Trophy, Users, Coins, X, ShoppingBag, Settings as SettingsIcon, Key, Flag, RotateCcw, Dice1, Check, LogOut, Gem, Palette, Shield, Package, Image, Sparkles } from 'lucide-react';
 
 // --- Modal Component ---
@@ -113,6 +114,9 @@ export default function App() {
   const [customization, setCustomization] = useState<CustomizationSettings>(() => customizationService.getSettings());
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
+
+  // Video frames from in-game comms (userId → JPEG data URL)
+  const [peerVideoFrames, setPeerVideoFrames] = useState<Map<string, string>>(new Map());
 
   // Music State
   const [musicEnabled, setMusicEnabled] = useState(() => {
@@ -1255,7 +1259,7 @@ export default function App() {
               key="game"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex flex-col items-center justify-center w-full h-[100dvh] relative"
+              className="flex flex-col items-center justify-center w-full h-[100dvh] relative pb-[56px]"
             >
               {/* Board + Player rows grouped tightly */}
               <div className="flex flex-col items-center w-full">
@@ -1275,6 +1279,7 @@ export default function App() {
                     onPassDie={handlePassDie}
                     turnProgress={turnProgress}
                     turnSecondsLeft={Math.ceil(turnSecondsLeft)}
+                    peerVideoFrames={peerVideoFrames}
                   />
                 </div>
 
@@ -1317,6 +1322,7 @@ export default function App() {
                     onPassDie={handlePassDie}
                     turnProgress={turnProgress}
                     turnSecondsLeft={Math.ceil(turnSecondsLeft)}
+                    peerVideoFrames={peerVideoFrames}
                   />
                 </div>
               </div>
@@ -1327,6 +1333,16 @@ export default function App() {
       </main>
 
       {view !== 'game' && <Navbar active={activeTab} onChange={handleNavChange} />}
+
+      {/* In-game comms: chat, voice, video — only shown during active game */}
+      {view === 'game' && (
+        <GameComms
+          socket={socket}
+          roomId={roomCode}
+          currentUser={currentUser ? { id: currentUser.id, username: currentUser.username, avatar: currentUser.avatar } : null}
+          onFramesChange={setPeerVideoFrames}
+        />
+      )}
 
       {/* Modals */}
 

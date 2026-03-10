@@ -388,6 +388,15 @@ export const supabaseDbService = {
     return data;
   },
 
+  deleteBoardTheme: async (themeId: string): Promise<void> => {
+    const { error } = await supabaseAdmin
+      .from('board_themes')
+      .delete()
+      .eq('id', themeId);
+
+    if (error) throw new Error(error.message);
+  },
+
   // Token styles operations
   getTokenStyles: async (): Promise<any[]> => {
     const { data, error } = await supabaseAdmin

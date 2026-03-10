@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Coins, Flag, Gem, Plus } from 'lucide-react';
 import { cn } from '../utils';
@@ -104,7 +104,8 @@ const PlayerWithDice: React.FC<{
   diceAlign: 'left' | 'right';
   timerProgress?: number;
   timerSecondsLeft?: number;
-}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onRollStart, onPassDie, diceAlign, timerProgress = 1, timerSecondsLeft }) => {
+  videoFrame?: string;
+}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onRollStart, onPassDie, diceAlign, timerProgress = 1, timerSecondsLeft, videoFrame }) => {
   return (
     <div className={cn(
       "flex items-center gap-1.5 sm:gap-3",
@@ -119,6 +120,7 @@ const PlayerWithDice: React.FC<{
           color={color}
           turnProgress={timerProgress}
           turnSecondsLeft={timerSecondsLeft}
+          videoFrame={videoFrame}
         />
       </div>
       {/* Dice */}
@@ -287,10 +289,13 @@ const Avatar: React.FC<{
   color?: string;
   turnProgress?: number;
   turnSecondsLeft?: number;
-}> = ({ name, image, active, color, turnProgress = 1, turnSecondsLeft }) => {
+  videoFrame?: string;
+}> = ({ name, image, active, color, turnProgress = 1, turnSecondsLeft, videoFrame }) => {
   const progress = Math.max(0, Math.min(1, turnProgress));
   const progressDeg = progress * 360;
   const ringColor = color ? COLOR_HEX[color] : '#ffffff';
+
+  const hasVideo = !!videoFrame;
 
   return (
     <div className="flex flex-col items-center gap-0.5 sm:gap-2">
@@ -302,8 +307,21 @@ const Avatar: React.FC<{
         )}
         style={{ background: `conic-gradient(${ringColor} ${progressDeg}deg, rgba(255,255,255,0.16) ${progressDeg}deg 360deg)` }}
       >
-        <div className="w-full h-full rounded-full border-2 border-white/30 overflow-hidden shadow-inner bg-slate-800">
-          <img src={image} alt={name} className="w-full h-full object-cover" />
+        <div className="w-full h-full rounded-full border-2 border-white/30 overflow-hidden shadow-inner bg-slate-800 relative">
+          {/* Static avatar — hidden when video frame is active */}
+          <img
+            src={image}
+            alt={name}
+            className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", hasVideo ? "opacity-0" : "opacity-100")}
+          />
+          {/* Frame image — shown when a video frame is available */}
+          {videoFrame && (
+            <img
+              src={videoFrame}
+              alt={name}
+              className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", hasVideo ? "opacity-100" : "opacity-0")}
+            />
+          )}
         </div>
         {color && (
           <div className={cn("absolute -bottom-0.5 sm:-bottom-1 left-1/2 -translate-x-1/2 w-3 h-3 sm:w-4 sm:h-4 rounded-full border-2 border-white", COLOR_DOT[color])} />
@@ -312,6 +330,10 @@ const Avatar: React.FC<{
           <div className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 min-w-4 h-4 sm:min-w-5 sm:h-5 px-0.5 sm:px-1 bg-yellow-400 rounded-full border-2 border-white flex items-center justify-center animate-pulse">
             <span className="text-[6px] sm:text-[8px] font-black text-slate-900">{turnSecondsLeft ?? 0}</span>
           </div>
+        )}
+        {/* Live indicator dot when showing frame */}
+        {hasVideo && (
+          <div className="absolute top-0 left-0 w-2.5 h-2.5 sm:w-3 sm:h-3 bg-red-500 rounded-full border border-white animate-pulse" />
         )}
       </div>
       <span className={cn(
@@ -337,7 +359,8 @@ export const GamePlayerRow: React.FC<{
   onPassDie?: (dieValue: number) => void;
   turnProgress?: number;
   turnSecondsLeft?: number;
-}> = ({ players, colors, currentUserId, user, currentTurn, myColor, lastDiceRoll, remainingDice = [], onRoll, onRollStart, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
+  peerVideoFrames?: Map<string, string>;
+}> = ({ players, colors, currentUserId, user, currentTurn, myColor, lastDiceRoll, remainingDice = [], onRoll, onRollStart, onPassDie, turnProgress = 1, turnSecondsLeft = 0, peerVideoFrames }) => {
   const rowPlayers = colors
     .map(c => players.find(p => p.color === c))
     .filter(Boolean) as typeof players;
@@ -365,6 +388,7 @@ export const GamePlayerRow: React.FC<{
               diceAlign={isLeft ? "left" : "right"}
               timerProgress={player.isTurn ? turnProgress : 1}
               timerSecondsLeft={player.isTurn ? turnSecondsLeft : undefined}
+              videoFrame={peerVideoFrames?.get(player.id)}
             />
           </div>
         );
