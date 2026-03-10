@@ -1631,6 +1631,54 @@ async function startServer() {
     }
   });
 
+  // Upload token style with custom images per color
+  app.post("/api/admin/token-styles/upload", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { name, display_name, description, price_gems, image_red, image_yellow, image_green, image_blue } = req.body;
+
+      if (!name || !display_name) {
+        return res.status(400).json({ error: "Missing name or display_name" });
+      }
+      if (!image_red && !image_yellow && !image_green && !image_blue) {
+        return res.status(400).json({ error: "At least one color image is required" });
+      }
+
+      const SUPABASE_URL = process.env.SUPABASE_URL || 'https://supabase.cloudteco.com';
+      const images: Record<string, string> = {};
+      const colors: Array<[string, string | undefined]> = [
+        ['red', image_red], ['yellow', image_yellow], ['green', image_green], ['blue', image_blue]
+      ];
+
+      for (const [color, base64] of colors) {
+        if (!base64) continue;
+        const buffer = Buffer.from(base64, 'base64');
+        const filename = `tokens/${name}/${color}.png`;
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from('assets')
+          .upload(filename, buffer, { upsert: true, contentType: 'image/png' });
+        if (uploadError) return res.status(500).json({ error: `Upload error for ${color}: ${uploadError.message}` });
+        images[`image_${color}`] = `${SUPABASE_URL}/storage/v1/object/public/assets/${filename}`;
+      }
+
+      const style = await supabaseDbService.createTokenStyle(name, display_name, description || '', images);
+
+      if (price_gems !== undefined && price_gems > 0) {
+        await supabaseDbService.updateTokenStyle(style.id, { price_gems });
+      }
+
+      res.json({ ...style, price_gems: price_gems || 0 });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Get token styles
   app.get("/api/admin/token-styles", async (req, res) => {
     try {

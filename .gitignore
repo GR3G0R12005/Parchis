@@ -8,3 +8,4 @@ coverage/
 !.env.example
 .vite/
 tmp_users.json
+CLAUDE.md

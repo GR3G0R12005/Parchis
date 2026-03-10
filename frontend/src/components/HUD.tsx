@@ -99,11 +99,12 @@ const PlayerWithDice: React.FC<{
   diceValues: [number, number] | null | undefined;
   remainingDice: number[];
   onRoll?: (values: [number, number]) => void;
+  onRollStart?: () => void;
   onPassDie?: (dieValue: number) => void;
   diceAlign: 'left' | 'right';
   timerProgress?: number;
   timerSecondsLeft?: number;
-}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onPassDie, diceAlign, timerProgress = 1, timerSecondsLeft }) => {
+}> = ({ name, image, color, isTurn, isMyDice, canRoll, diceValues, remainingDice, onRoll, onRollStart, onPassDie, diceAlign, timerProgress = 1, timerSecondsLeft }) => {
   return (
     <div className={cn(
       "flex items-center gap-1.5 sm:gap-3",
@@ -127,6 +128,7 @@ const PlayerWithDice: React.FC<{
         canRoll={isMyDice && canRoll}
         remainingDice={remainingDice}
         onRoll={onRoll}
+        onRollStart={onRollStart}
         onPassDie={isMyDice ? onPassDie : undefined}
       />
     </div>
@@ -140,8 +142,9 @@ const MiniDice: React.FC<{
   canRoll: boolean;
   remainingDice: number[];
   onRoll?: (values: [number, number]) => void;
+  onRollStart?: () => void;
   onPassDie?: (dieValue: number) => void;
-}> = ({ values, isTurn, canRoll, remainingDice, onRoll, onPassDie }) => {
+}> = ({ values, isTurn, canRoll, remainingDice, onRoll, onRollStart, onPassDie }) => {
   const [rolling, setRolling] = useState(false);
   const [displayValues, setDisplayValues] = useState<[number, number]>(values);
 
@@ -154,6 +157,7 @@ const MiniDice: React.FC<{
   const rollDice = () => {
     if (!canRoll || rolling || !onRoll) return;
     setRolling(true);
+    onRollStart?.();
 
     if ('vibrate' in navigator) {
       navigator.vibrate([10, 30, 10, 30]);
@@ -329,10 +333,11 @@ export const GamePlayerRow: React.FC<{
   lastDiceRoll?: [number, number] | null;
   remainingDice?: number[];
   onRoll?: (values: [number, number]) => void;
+  onRollStart?: () => void;
   onPassDie?: (dieValue: number) => void;
   turnProgress?: number;
   turnSecondsLeft?: number;
-}> = ({ players, colors, currentUserId, user, currentTurn, myColor, lastDiceRoll, remainingDice = [], onRoll, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
+}> = ({ players, colors, currentUserId, user, currentTurn, myColor, lastDiceRoll, remainingDice = [], onRoll, onRollStart, onPassDie, turnProgress = 1, turnSecondsLeft = 0 }) => {
   const rowPlayers = colors
     .map(c => players.find(p => p.color === c))
     .filter(Boolean) as typeof players;
@@ -355,6 +360,7 @@ export const GamePlayerRow: React.FC<{
               diceValues={player.isTurn ? lastDiceRoll : null}
               remainingDice={player.isTurn ? remainingDice : []}
               onRoll={isMe ? onRoll : undefined}
+              onRollStart={isMe ? onRollStart : undefined}
               onPassDie={isMe ? onPassDie : undefined}
               diceAlign={isLeft ? "left" : "right"}
               timerProgress={player.isTurn ? turnProgress : 1}

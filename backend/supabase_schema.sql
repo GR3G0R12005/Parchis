@@ -201,4 +201,10 @@ ALTER TABLE user_purchases ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can read their own purchases" ON user_purchases FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert their own purchases" ON user_purchases FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+-- Add image columns to token_styles for custom token images per color
+ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_red TEXT;
+ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_yellow TEXT;
+ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_green TEXT;
+ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_blue TEXT;
+
 -- No default data - admin creates all packages, boards and tokens from the admin panel

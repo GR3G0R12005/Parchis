@@ -82,11 +82,13 @@ interface BoardProps {
   pendingToken?: Token | null;
   pendingDice?: number[];
   onDieSelect?: (die: number) => void;
-  boardTheme?: 'classic' | 'neon' | 'vintage' | 'royal';
-  tokenStyle?: 'classic' | 'gems' | 'medieval' | 'cosmic';
+  boardTheme?: string;
+  tokenStyle?: string;
+  tokenImages?: Partial<Record<PlayerColor, string>>;
+  onTokenStep?: () => void;
 }
 
-export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, boardTheme = 'classic', tokenStyle = 'classic' }) => {
+export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, boardTheme = 'classic', tokenStyle = 'classic', tokenImages, onTokenStep }) => {
   const getTokensAtPos = (pos: number, tokenColor?: PlayerColor) => {
     return tokens.filter(t => t.position === pos && (pos !== -1 || t.color === tokenColor));
   };
@@ -184,6 +186,8 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
               coords={getTokenCoords(token)}
               onClick={() => onTokenClick(token)}
               tokenStyle={tokenStyle}
+              tokenImages={tokenImages}
+              onStep={onTokenStep}
             />
           ))}
         </div>
@@ -247,8 +251,10 @@ const TokenComponent: React.FC<{
   token: Token;
   coords: { position: React.CSSProperties; scale: number };
   onClick: () => void;
-  tokenStyle?: 'classic' | 'gems' | 'medieval' | 'cosmic';
-}> = ({ token, coords, onClick, tokenStyle = 'classic' }) => {
+  tokenStyle?: string;
+  tokenImages?: Partial<Record<PlayerColor, string>>;
+  onStep?: () => void;
+}> = ({ token, coords, onClick, tokenStyle = 'classic', tokenImages, onStep }) => {
   const getColorMap = (style: string) => {
     const styles: Record<string, Record<string, string>> = {
       classic: {
@@ -330,6 +336,7 @@ const TokenComponent: React.FC<{
       if (i < intermediates.length) {
         const style = posToCenter(intermediates[i], token.color);
         if (style) setCurrentStyle(style);
+        onStep?.();
         i++;
         timeoutId = setTimeout(tick, STEP_MS);
       } else {
@@ -365,16 +372,27 @@ const TokenComponent: React.FC<{
       }}
     >
       <div style={{ transform: `scale(${coords.scale})`, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <motion.div
-          whileHover={{ scale: 1.2, y: -5 }}
-          whileTap={{ scale: 0.9 }}
-          className={cn(
-            "w-[90%] h-[90%] rounded-full border-[2px] shadow-[0_5px_10px_rgba(0,0,0,0.4)] flex items-center justify-center relative bg-gradient-to-br",
-            colorMap[token.color]
-          )}
-        >
-          <div className="absolute top-[15%] left-[15%] w-1/3 h-1/4 bg-white/40 rounded-full blur-[2px]" />
-        </motion.div>
+        {tokenImages?.[token.color] ? (
+          <motion.img
+            whileHover={{ scale: 1.2, y: -5 }}
+            whileTap={{ scale: 0.9 }}
+            src={tokenImages[token.color]}
+            alt={token.color}
+            className="w-[90%] h-[90%] rounded-full object-cover border-[2px] border-white/40 shadow-[0_5px_10px_rgba(0,0,0,0.4)]"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <motion.div
+            whileHover={{ scale: 1.2, y: -5 }}
+            whileTap={{ scale: 0.9 }}
+            className={cn(
+              "w-[90%] h-[90%] rounded-full border-[2px] shadow-[0_5px_10px_rgba(0,0,0,0.4)] flex items-center justify-center relative bg-gradient-to-br",
+              colorMap[token.color]
+            )}
+          >
+            <div className="absolute top-[15%] left-[15%] w-1/3 h-1/4 bg-white/40 rounded-full blur-[2px]" />
+          </motion.div>
+        )}
       </div>
     </div>
   );
