@@ -247,10 +247,12 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
         {/* Dice popup above pending token */}
         {pendingToken && (() => {
           const pt = pendingToken;
+          if (pt.position === -1) return null;
           let point: Point;
-          if (pt.position === -1) point = getHomeCoords(pt.color, 0);
-          else if (pt.position > 68) point = getFinalPathCoords(pt.color, pt.position);
+          if (pt.position > 68) point = getFinalPathCoords(pt.color, pt.position);
           else point = getSquareCoords(pt.position);
+          if (pendingDice.length === 0) return null;
+
           return (
             <motion.div
               key={pt.id}
@@ -264,15 +266,20 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
                 transform: 'translate(-30%, -130%)',
               }}
             >
-              {pendingDice.map((die, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onDieSelect?.(die)}
-                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md active:scale-90 transition-transform"
-                >
-                  {die}
-                </button>
-              ))}
+              {pendingDice.map((die, idx) => {
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => onDieSelect?.(die)}
+                    className={cn(
+                      "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md transition-all",
+                      "bg-white active:scale-90 cursor-pointer"
+                    )}
+                  >
+                    {die}
+                  </button>
+                );
+              })}
             </motion.div>
           );
         })()}

@@ -512,11 +512,21 @@ export default function App() {
     if (!roomCode || !gameState) return;
     const remaining = gameState.remainingDice || [];
     const bonus = gameState.bonusSteps || 0;
-    const canExitBySumFive = remaining.length === 2 && (remaining[0] + remaining[1] === 5);
+    const isHomeToken = token.position === -1;
 
     // Close popup if clicking same token again
     if (pendingToken?.id === token.id) {
       setPendingToken(null);
+      return;
+    }
+
+    // Home token: never show popup, only try exiting with 5
+    if (isHomeToken) {
+      setPendingToken(null);
+      const canExitHome = remaining.includes(5);
+      if (canExitHome) {
+        socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
+      }
       return;
     }
 
@@ -541,13 +551,6 @@ export default function App() {
       return;
     }
 
-    // Exit from home with sum 5: move directly
-    if (remaining.length === 2 && token.position === -1 && canExitBySumFive) {
-      setPendingToken(null);
-      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
-      return;
-    }
-
     // Two different dice: show popup above token
     if (remaining.length === 2) {
       setPendingToken(token);
@@ -557,6 +560,7 @@ export default function App() {
 
   const handleDieSelect = (die: number) => {
     if (!roomCode || !pendingToken) return;
+    if (pendingToken.position === -1 && die !== 5) return;
     socket?.emit('move-token', { roomId: roomCode, tokenId: pendingToken.id, dieValue: die });
     setPendingToken(null);
   };
@@ -761,12 +765,11 @@ export default function App() {
 
     const positions: number[] = [];
     const dieValues = bonus > 0 ? [bonus] : [...new Set(remaining)]; // unique die values
-    const canExitBySumFive = bonus <= 0 && remaining.length === 2 && (remaining[0] + remaining[1] === 5);
 
     for (const token of currentPlayer.tokens) {
       for (const dieVal of dieValues) {
         // Exit from home
-        if (token.position === -1 && (dieVal === 5 || canExitBySumFive)) {
+        if (token.position === -1 && dieVal === 5) {
           positions.push(EXIT_POSITIONS[token.color]);
           continue;
         }
