@@ -98,11 +98,19 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
     let point: Point;
     const isGoal = token.position === 76;
     const isHome = token.position === -1;
+
+    // Get tokens of same color at this position
     const tokensAtThisPos = isGoal
       ? tokens.filter(t => t.position === 76 && t.color === token.color)
-      : getTokensAtPos(token.position, token.color);
+      : tokens.filter(t => t.position === token.position && t.color === token.color);
+
+    // Get ALL tokens at this position (any color)
+    const allTokensAtPos = isGoal
+      ? tokens.filter(t => t.position === 76)
+      : tokens.filter(t => t.position === token.position && token.position !== -1);
+
     const tokenIndex = tokensAtThisPos.findIndex(t => t.id === token.id);
-    const stackSize = tokensAtThisPos.length;
+    const sameColorCount = tokensAtThisPos.length;
 
     if (isHome) {
       point = getHomeCoords(token.color, tokenIndex);
@@ -123,20 +131,60 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
 
     const orientation = getSquareOrientation(token.position, token.color);
 
-    const stackOffsetsByCount: Record<number, Array<{ x: number; y: number }>> = {
-      2: orientation === 'vertical'
-        ? [{ x: -55, y: 0 }, { x: 55, y: 0 }]
-        : [{ x: 0, y: -55 }, { x: 0, y: 55 }],
-      3: orientation === 'vertical'
-        ? [{ x: -70, y: 0 }, { x: 0, y: 0 }, { x: 70, y: 0 }]
-        : [{ x: 0, y: -70 }, { x: 0, y: 0 }, { x: 0, y: 70 }],
-      4: orientation === 'vertical'
-        ? [{ x: -75, y: -40 }, { x: 75, y: -40 }, { x: -75, y: 40 }, { x: 75, y: 40 }]
-        : [{ x: 0, y: -75 }, { x: 0, y: -25 }, { x: 0, y: 25 }, { x: 0, y: 75 }],
-    };
-    const offset = isHome ? { x: 0, y: 0 } : (stackOffsetsByCount[stackSize]?.[tokenIndex] || { x: 0, y: 0 });
-    const scaleByCount: Record<number, number> = { 1: 0.55, 2: 0.40, 3: 0.33, 4: 0.28 };
-    const scale = isHome ? 0.55 : (scaleByCount[stackSize] || 0.28);
+    // Group all tokens by color
+    const colorGroups: Record<PlayerColor, Token[]> = { green: [], red: [], yellow: [], blue: [] };
+    allTokensAtPos.forEach(t => {
+      colorGroups[t.color].push(t);
+    });
+
+    // Get active colors and their order
+    const colorOrder: PlayerColor[] = ['green', 'yellow', 'red', 'blue'];
+    const activeColors = colorOrder.filter(c => colorGroups[c].length > 0);
+
+    let offset = { x: 0, y: 0 };
+    let scale = 0.55;
+
+    if (!isHome && !isGoal && token.position > 0 && token.position <= 68) {
+      // If 2+ tokens of same color: they form a block
+      if (sameColorCount >= 2) {
+        // Position within block (side by side)
+        if (orientation === 'vertical') {
+          offset = tokenIndex === 0 ? { x: -60, y: 0 } : { x: 60, y: 0 };
+        } else {
+          offset = tokenIndex === 0 ? { x: 0, y: -60 } : { x: 0, y: 60 };
+        }
+        scale = 0.45;
+
+        // If there are other color blocks, distribute them around
+        if (activeColors.length > 1) {
+          const colorIndex = activeColors.indexOf(token.color);
+          const baseOffsets = orientation === 'vertical'
+            ? [{ x: -100, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: -80 }]
+            : [{ x: 0, y: -100 }, { x: 0, y: 0 }, { x: 0, y: 100 }, { x: 80, y: 0 }];
+
+          // Get base position for this color's block
+          const baseOffset = baseOffsets[colorIndex] || { x: 0, y: 0 };
+          offset = {
+            x: baseOffset.x + offset.x,
+            y: baseOffset.y + offset.y,
+          };
+          scale = 0.38;
+        }
+      } else if (activeColors.length > 1) {
+        // Multiple colors but no blocking: distribute colors
+        const colorIndex = activeColors.indexOf(token.color);
+        const offsets = orientation === 'vertical'
+          ? [{ x: -80, y: 0 }, { x: -26, y: 0 }, { x: 26, y: 0 }, { x: 80, y: 0 }]
+          : [{ x: 0, y: -80 }, { x: 0, y: -26 }, { x: 0, y: 26 }, { x: 0, y: 80 }];
+        offset = offsets[colorIndex] || { x: 0, y: 0 };
+        scale = 0.40;
+      } else {
+        scale = 0.55;
+      }
+    } else if (!isHome && !isGoal) {
+      // Final path or other positions
+      scale = 0.50;
+    }
 
     return {
       position: {
