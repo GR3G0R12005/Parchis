@@ -82,13 +82,14 @@ interface BoardProps {
   pendingToken?: Token | null;
   pendingDice?: number[];
   onDieSelect?: (die: number) => void;
+  rotationDeg?: number;
   boardTheme?: string;
   tokenStyle?: string;
   tokenImages?: Partial<Record<PlayerColor, string>>;
   onTokenStep?: () => void;
 }
 
-export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, boardTheme = 'classic', tokenStyle = 'classic', tokenImages, onTokenStep }) => {
+export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highlightedPositions = [], pendingToken, pendingDice = [], onDieSelect, rotationDeg = 0, boardTheme = 'classic', tokenStyle = 'classic', tokenImages, onTokenStep }) => {
   const getTokensAtPos = (pos: number, tokenColor?: PlayerColor) => {
     return tokens.filter(t => t.position === pos && (pos !== -1 || t.color === tokenColor));
   };
@@ -97,11 +98,19 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
     let point: Point;
     const isGoal = token.position === 76;
     const isHome = token.position === -1;
+
+    // Get tokens of same color at this position
     const tokensAtThisPos = isGoal
       ? tokens.filter(t => t.position === 76 && t.color === token.color)
-      : getTokensAtPos(token.position, token.color);
+      : tokens.filter(t => t.position === token.position && t.color === token.color);
+
+    // Get ALL tokens at this position (any color)
+    const allTokensAtPos = isGoal
+      ? tokens.filter(t => t.position === 76)
+      : tokens.filter(t => t.position === token.position && token.position !== -1);
+
     const tokenIndex = tokensAtThisPos.findIndex(t => t.id === token.id);
-    const stackSize = tokensAtThisPos.length;
+    const sameColorCount = tokensAtThisPos.length;
 
     if (isHome) {
       point = getHomeCoords(token.color, tokenIndex);
@@ -122,20 +131,60 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
 
     const orientation = getSquareOrientation(token.position, token.color);
 
-    const stackOffsetsByCount: Record<number, Array<{ x: number; y: number }>> = {
-      2: orientation === 'vertical'
-        ? [{ x: -55, y: 0 }, { x: 55, y: 0 }]
-        : [{ x: 0, y: -55 }, { x: 0, y: 55 }],
-      3: orientation === 'vertical'
-        ? [{ x: -70, y: 0 }, { x: 0, y: 0 }, { x: 70, y: 0 }]
-        : [{ x: 0, y: -70 }, { x: 0, y: 0 }, { x: 0, y: 70 }],
-      4: orientation === 'vertical'
-        ? [{ x: -75, y: -40 }, { x: 75, y: -40 }, { x: -75, y: 40 }, { x: 75, y: 40 }]
-        : [{ x: 0, y: -75 }, { x: 0, y: -25 }, { x: 0, y: 25 }, { x: 0, y: 75 }],
-    };
-    const offset = isHome ? { x: 0, y: 0 } : (stackOffsetsByCount[stackSize]?.[tokenIndex] || { x: 0, y: 0 });
-    const scaleByCount: Record<number, number> = { 1: 0.55, 2: 0.40, 3: 0.33, 4: 0.28 };
-    const scale = isHome ? 0.55 : (scaleByCount[stackSize] || 0.28);
+    // Group all tokens by color
+    const colorGroups: Record<PlayerColor, Token[]> = { green: [], red: [], yellow: [], blue: [] };
+    allTokensAtPos.forEach(t => {
+      colorGroups[t.color].push(t);
+    });
+
+    // Get active colors and their order
+    const colorOrder: PlayerColor[] = ['green', 'yellow', 'red', 'blue'];
+    const activeColors = colorOrder.filter(c => colorGroups[c].length > 0);
+
+    let offset = { x: 0, y: 0 };
+    let scale = 0.55;
+
+    if (!isHome && !isGoal && token.position > 0 && token.position <= 68) {
+      // If 2+ tokens of same color: they form a block
+      if (sameColorCount >= 2) {
+        // Position within block (side by side)
+        if (orientation === 'vertical') {
+          offset = tokenIndex === 0 ? { x: -60, y: 0 } : { x: 60, y: 0 };
+        } else {
+          offset = tokenIndex === 0 ? { x: 0, y: -60 } : { x: 0, y: 60 };
+        }
+        scale = 0.45;
+
+        // If there are other color blocks, distribute them around
+        if (activeColors.length > 1) {
+          const colorIndex = activeColors.indexOf(token.color);
+          const baseOffsets = orientation === 'vertical'
+            ? [{ x: -100, y: 0 }, { x: 0, y: 0 }, { x: 100, y: 0 }, { x: 0, y: -80 }]
+            : [{ x: 0, y: -100 }, { x: 0, y: 0 }, { x: 0, y: 100 }, { x: 80, y: 0 }];
+
+          // Get base position for this color's block
+          const baseOffset = baseOffsets[colorIndex] || { x: 0, y: 0 };
+          offset = {
+            x: baseOffset.x + offset.x,
+            y: baseOffset.y + offset.y,
+          };
+          scale = 0.38;
+        }
+      } else if (activeColors.length > 1) {
+        // Multiple colors but no blocking: distribute colors
+        const colorIndex = activeColors.indexOf(token.color);
+        const offsets = orientation === 'vertical'
+          ? [{ x: -80, y: 0 }, { x: -26, y: 0 }, { x: 26, y: 0 }, { x: 80, y: 0 }]
+          : [{ x: 0, y: -80 }, { x: 0, y: -26 }, { x: 0, y: 26 }, { x: 0, y: 80 }];
+        offset = offsets[colorIndex] || { x: 0, y: 0 };
+        scale = 0.40;
+      } else {
+        scale = 0.55;
+      }
+    } else if (!isHome && !isGoal) {
+      // Final path or other positions
+      scale = 0.50;
+    }
 
     return {
       position: {
@@ -149,6 +198,10 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
         zIndex: 40 + tokenIndex,
       },
       scale,
+      anchor: {
+        x: point.x + (isHome ? 0 : 0.5 + (offset.x / 100)),
+        y: point.y + (isHome ? 0 : 0.5 + (offset.y / 100)),
+      },
     };
   };
 
@@ -165,6 +218,9 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
           width: 'clamp(100%, 100vmin, 800px)',
           height: 'clamp(100%, 100vmin, 800px)',
           minWidth: '100%',
+          transform: `rotate(${rotationDeg}deg)`,
+          transformOrigin: 'center center',
+          transition: 'transform 220ms ease-out',
         }}
       >
         <img
@@ -195,33 +251,43 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
         {/* Dice popup above pending token */}
         {pendingToken && (() => {
           const pt = pendingToken;
-          let point: Point;
-          if (pt.position === -1) point = getHomeCoords(pt.color, 0);
-          else if (pt.position > 68) point = getFinalPathCoords(pt.color, pt.position);
-          else point = getSquareCoords(pt.position);
+          if (pt.position === -1) return null;
+          const popupTokenCoords = getTokenCoords(pt);
+          if (pendingDice.length === 0) return null;
+
           return (
-            <motion.div
-              key={pt.id}
-              initial={{ opacity: 0, scale: 0.7, y: 6 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              className="absolute z-[60] pointer-events-auto flex gap-1 items-center bg-black/75 backdrop-blur-sm border border-white/20 rounded-xl px-2 py-1 shadow-xl"
+            <div
+              className="absolute z-[60] pointer-events-auto"
               style={{
-                left: `${(point.x / GRID) * 100}%`,
-                top: `${(point.y / GRID) * 100}%`,
-                transform: 'translate(-30%, -130%)',
+                left: `${(popupTokenCoords.anchor.x / GRID) * 100}%`,
+                top: `${(popupTokenCoords.anchor.y / GRID) * 100}%`,
+                transform: `rotate(${-rotationDeg}deg) translate(-50%, calc(-100% - 8px))`,
+                transformOrigin: '0 0',
               }}
             >
-              {pendingDice.map((die, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onDieSelect?.(die)}
-                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-white text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md active:scale-90 transition-transform"
-                >
-                  {die}
-                </button>
-              ))}
-            </motion.div>
+              <motion.div
+                key={pt.id}
+                initial={{ opacity: 0, scale: 0.7, y: 6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.7 }}
+                className="flex gap-1 items-center bg-black/75 backdrop-blur-sm border border-white/20 rounded-xl px-2 py-1 shadow-xl"
+              >
+                {pendingDice.map((die, idx) => {
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => onDieSelect?.(die)}
+                      className={cn(
+                        "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md transition-all",
+                        "bg-white active:scale-90 cursor-pointer"
+                      )}
+                    >
+                      {die}
+                    </button>
+                  );
+                })}
+              </motion.div>
+            </div>
           );
         })()}
 
@@ -249,7 +315,7 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
 
 const TokenComponent: React.FC<{
   token: Token;
-  coords: { position: React.CSSProperties; scale: number };
+  coords: { position: React.CSSProperties; scale: number; anchor: Point };
   onClick: () => void;
   tokenStyle?: string;
   tokenImages?: Partial<Record<PlayerColor, string>>;

@@ -465,12 +465,6 @@ async function startServer() {
     return true;
   };
 
-  const canExitWithDiceSum = (state: any, color: string, remainingDice: number[]): boolean => {
-    if (remainingDice.length !== 2) return false;
-    if (remainingDice[0] + remainingDice[1] !== 5) return false;
-    return canExitToken(state, color, 5);
-  };
-
   // Check capture at position (returns true if captured)
   const checkCapture = (state: any, movingColor: string, position: number): boolean => {
     if (position <= 0 || position > BOARD_SIZE) return false;
@@ -523,13 +517,12 @@ async function startServer() {
   };
 
   // Check if any move is possible for the current player
-  const hasAnyValidMove = (state: any, dieValue: number, color: string, remainingDice: number[] = []): boolean => {
+  const hasAnyValidMove = (state: any, dieValue: number, color: string): boolean => {
     const player = state.players.find((p: any) => p.color === color);
     if (!player) return false;
 
     // Check exit
     if (canExitToken(state, color, dieValue)) return true;
-    if (canExitWithDiceSum(state, color, remainingDice)) return true;
 
     // Check movement of any token on board
     for (const token of player.tokens) {
@@ -587,7 +580,7 @@ async function startServer() {
     const hasPlayableDie = state.remainingDice.some((die: number) => (
       state.mustBreakBarrier
         ? canBreakBarrierWithDie(state, state.currentTurn, die)
-        : hasAnyValidMove(state, die, state.currentTurn, state.remainingDice)
+        : hasAnyValidMove(state, die, state.currentTurn)
     ));
 
     if (hasPlayableDie) return false;
@@ -724,10 +717,10 @@ async function startServer() {
 
       const canMoveD1 = state.mustBreakBarrier
         ? canBreakBarrierWithDie(state, state.currentTurn, d1)
-        : hasAnyValidMove(state, d1, state.currentTurn, state.remainingDice);
+        : hasAnyValidMove(state, d1, state.currentTurn);
       const canMoveD2 = state.mustBreakBarrier
         ? canBreakBarrierWithDie(state, state.currentTurn, d2)
-        : hasAnyValidMove(state, d2, state.currentTurn, state.remainingDice);
+        : hasAnyValidMove(state, d2, state.currentTurn);
 
       if (!canMoveD1 && !canMoveD2) {
         setTimeout(() => {
@@ -822,24 +815,18 @@ async function startServer() {
       return;
     }
 
-    // Try exit from home with 5 (single die) or dice sum = 5
-    const canExitBySumFive = freshState.remainingDice.length === 2 &&
-      (freshState.remainingDice[0] + freshState.remainingDice[1] === 5);
+    // Try exit from home with a die showing 5
     const homeToken = currentP.tokens.find((t: any) => t.position === HOME_POSITION);
     if (homeToken && !freshState.mustBreakBarrier &&
-      (freshState.remainingDice.includes(5) || canExitBySumFive) &&
+      freshState.remainingDice.includes(5) &&
       canExitToken(freshState, freshState.currentTurn, 5)) {
       const exitPos = EXIT_POSITIONS[freshState.currentTurn];
       homeToken.position = exitPos;
       homeToken.isSafe = true;
       resetTurnTimer(freshState);
 
-      if (freshState.remainingDice.includes(5)) {
-        const idx = freshState.remainingDice.indexOf(5);
-        freshState.remainingDice.splice(idx, 1);
-      } else {
-        freshState.remainingDice = [];
-      }
+      const idx = freshState.remainingDice.indexOf(5);
+      freshState.remainingDice.splice(idx, 1);
 
       if (checkCapture(freshState, freshState.currentTurn, exitPos)) {
         freshState.bonusSteps = 20;
@@ -1118,10 +1105,10 @@ async function startServer() {
       // Check if player has any valid move with either die
       const canMoveD1 = mustBreakBarrier
         ? canBreakBarrierWithDie(state, state.currentTurn, d1)
-        : hasAnyValidMove(state, d1, state.currentTurn, state.remainingDice);
+        : hasAnyValidMove(state, d1, state.currentTurn);
       const canMoveD2 = mustBreakBarrier
         ? canBreakBarrierWithDie(state, state.currentTurn, d2)
-        : hasAnyValidMove(state, d2, state.currentTurn, state.remainingDice);
+        : hasAnyValidMove(state, d2, state.currentTurn);
 
       if (!canMoveD1 && !canMoveD2) {
         // No moves possible: auto-advance
@@ -1216,10 +1203,7 @@ async function startServer() {
 
       // --- NORMAL MOVE: validate dieValue is in remainingDice ---
       const usesSingleDie = state.remainingDice.includes(dieValue);
-      const usesSumFiveExit = token.position === HOME_POSITION &&
-        dieValue === 5 &&
-        canExitWithDiceSum(state, state.currentTurn, state.remainingDice);
-      if (!usesSingleDie && !usesSumFiveExit) return;
+      if (!usesSingleDie) return;
 
       // --- EXIT FROM HOME: requires a 5 ---
       if (token.position === HOME_POSITION) {
@@ -1235,9 +1219,6 @@ async function startServer() {
           // Exit with single die showing 5
           const dieIdx = state.remainingDice.indexOf(5);
           state.remainingDice.splice(dieIdx, 1);
-        } else if (usesSumFiveExit) {
-          // Exit with sum of both dice (2+3 or 1+4)
-          state.remainingDice = [];
         } else {
           return;
         }
@@ -1322,7 +1303,7 @@ async function startServer() {
       // Only allow passing if the die truly has no valid move
       if (state.mustBreakBarrier) {
         if (canBreakBarrierWithDie(state, state.currentTurn, dieValue)) return;
-      } else if (hasAnyValidMove(state, dieValue, state.currentTurn, state.remainingDice)) return;
+      } else if (hasAnyValidMove(state, dieValue, state.currentTurn)) return;
 
       const dieIdx = state.remainingDice.indexOf(dieValue);
       state.remainingDice.splice(dieIdx, 1);

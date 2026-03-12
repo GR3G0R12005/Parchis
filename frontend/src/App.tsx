@@ -79,6 +79,17 @@ const clearSession = () => {
 
 const TURN_DURATION_SECONDS = 30;
 
+const BOARD_PERSPECTIVE_BY_COLOR: Record<PlayerColor, {
+  rotationDeg: number;
+  topRowColors: [PlayerColor, PlayerColor];
+  bottomRowColors: [PlayerColor, PlayerColor];
+}> = {
+  yellow: { rotationDeg: 0, topRowColors: ['green', 'red'], bottomRowColors: ['yellow', 'blue'] },
+  red: { rotationDeg: 180, topRowColors: ['blue', 'yellow'], bottomRowColors: ['red', 'green'] },
+  green: { rotationDeg: -90, topRowColors: ['red', 'blue'], bottomRowColors: ['green', 'yellow'] },
+  blue: { rotationDeg: 90, topRowColors: ['yellow', 'green'], bottomRowColors: ['blue', 'red'] },
+};
+
 // --- Main App Component ---
 export default function App() {
   // Auth & Profile State
@@ -557,11 +568,21 @@ export default function App() {
     if (!roomCode || !gameState) return;
     const remaining = gameState.remainingDice || [];
     const bonus = gameState.bonusSteps || 0;
-    const canExitBySumFive = remaining.length === 2 && (remaining[0] + remaining[1] === 5);
+    const isHomeToken = token.position === -1;
 
     // Close popup if clicking same token again
     if (pendingToken?.id === token.id) {
       setPendingToken(null);
+      return;
+    }
+
+    // Home token: never show popup, only try exiting with 5
+    if (isHomeToken) {
+      setPendingToken(null);
+      const canExitHome = remaining.includes(5);
+      if (canExitHome) {
+        socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
+      }
       return;
     }
 
@@ -586,13 +607,6 @@ export default function App() {
       return;
     }
 
-    // Exit from home with sum 5: move directly
-    if (remaining.length === 2 && token.position === -1 && canExitBySumFive) {
-      setPendingToken(null);
-      socket?.emit('move-token', { roomId: roomCode, tokenId: token.id, dieValue: 5 });
-      return;
-    }
-
     // Two different dice: show popup above token
     if (remaining.length === 2) {
       setPendingToken(token);
@@ -602,6 +616,7 @@ export default function App() {
 
   const handleDieSelect = (die: number) => {
     if (!roomCode || !pendingToken) return;
+    if (pendingToken.position === -1 && die !== 5) return;
     socket?.emit('move-token', { roomId: roomCode, tokenId: pendingToken.id, dieValue: die });
     setPendingToken(null);
   };
@@ -806,12 +821,11 @@ export default function App() {
 
     const positions: number[] = [];
     const dieValues = bonus > 0 ? [bonus] : [...new Set(remaining)]; // unique die values
-    const canExitBySumFive = bonus <= 0 && remaining.length === 2 && (remaining[0] + remaining[1] === 5);
 
     for (const token of currentPlayer.tokens) {
       for (const dieVal of dieValues) {
         // Exit from home
-        if (token.position === -1 && (dieVal === 5 || canExitBySumFive)) {
+        if (token.position === -1 && dieVal === 5) {
           positions.push(EXIT_POSITIONS[token.color]);
           continue;
         }
@@ -835,6 +849,7 @@ export default function App() {
 
   const turnProgress = Math.max(0, Math.min(1, turnSecondsLeft / TURN_DURATION_SECONDS));
   const isPublicRoom = (roomCode || '').startsWith('public-');
+  const boardPerspective = BOARD_PERSPECTIVE_BY_COLOR[myColor ?? 'yellow'];
 
   // --- Rendering ---
 
@@ -1337,11 +1352,11 @@ export default function App() {
             >
               {/* Board + Player rows grouped tightly */}
               <div className="flex flex-col items-center w-full">
-                {/* Top player row: green (left), red (right) */}
+                {/* Top player row based on current player perspective */}
                 <div className="w-[min(100vw,calc(100dvh-16rem),800px)] px-1 pb-1">
                   <GamePlayerRow
                     players={gameState?.players || []}
-                    colors={['green', 'red']}
+                    colors={boardPerspective.topRowColors}
                     currentUserId={currentUser?.id}
                     user={currentUser}
                     currentTurn={gameState?.currentTurn}
@@ -1364,6 +1379,7 @@ export default function App() {
                   pendingToken={pendingToken}
                   pendingDice={gameState?.remainingDice || []}
                   onDieSelect={handleDieSelect}
+                  rotationDeg={boardPerspective.rotationDeg}
                   boardTheme={customization.boardTheme}
                   tokenStyle={customization.tokenStyle}
                   onTokenStep={playTokenStep}
@@ -1379,11 +1395,11 @@ export default function App() {
                   })()}
                 />
 
-                {/* Bottom player row: yellow (left), blue (right) */}
+                {/* Bottom player row (always keeps current player on bottom-left) */}
                 <div className="w-[min(100vw,calc(100dvh-16rem),800px)] px-1 pt-1">
                   <GamePlayerRow
                     players={gameState?.players || []}
-                    colors={['yellow', 'blue']}
+                    colors={boardPerspective.bottomRowColors}
                     currentUserId={currentUser?.id}
                     user={currentUser}
                     currentTurn={gameState?.currentTurn}
