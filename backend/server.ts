@@ -571,11 +571,44 @@ async function startServer() {
     }
   };
 
+  const canUseBonusSteps = (state: any): boolean => {
+    if (state.bonusSteps <= 0) return false;
+    const currentP = state.players.find((p: any) => p.color === state.currentTurn);
+    if (!currentP) return false;
+    return currentP.tokens.some((t: any) =>
+      t.position !== HOME_POSITION &&
+      t.position !== GOAL_POSITION &&
+      canMoveTokenWithDie(state, t, state.bonusSteps, state.currentTurn)
+    );
+  };
+
+  // Assign bonus and auto-clear if no token can use it
+  const assignBonus = (room: any, roomId: string, amount: number) => {
+    const state = room.gameState;
+    state.bonusSteps = amount;
+    if (!canUseBonusSteps(state)) {
+      state.bonusSteps = 0;
+      autoPassIfNoValidMove(room);
+    }
+    io.to(roomId).emit("room-update", state);
+  };
+
   const autoPassIfNoValidMove = (room: any): boolean => {
     if (!room?.gameState) return false;
     const state = room.gameState;
     if (state.status !== "playing") return false;
-    if (state.bonusSteps > 0 || state.remainingDice.length === 0) return false;
+
+    // If there's a bonus that can't be used, clear it
+    if (state.bonusSteps > 0 && !canUseBonusSteps(state)) {
+      state.bonusSteps = 0;
+    }
+
+    if (state.bonusSteps > 0) return false;
+    if (state.remainingDice.length === 0) {
+      const [d1, d2] = state.lastDiceRoll || [0, 0];
+      finishDiceUsage(room, d1 === d2);
+      return true;
+    }
 
     const hasPlayableDie = state.remainingDice.some((die: number) => (
       state.mustBreakBarrier
@@ -919,41 +952,39 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
 
-    socket.on("join-room", ({ roomId, id, privateGameBet }) => {
+    socket.on("join-room", async ({ roomId, id, privateGameBet }) => {
       console.log(`Join Room: room=${roomId}, id=${id}, privateGameBet=${privateGameBet}`);
       socket.join(roomId);
       if (!rooms.has(roomId)) {
-        (async () => {
-          try {
-            let commission = 10; // Default
-            if (privateGameBet && privateGameBet > 0) {
-              const commissionValue = await supabaseDbService.getAdminSetting("private_game_commission");
-              if (commissionValue) {
-                commission = parseInt(commissionValue);
-              }
+        try {
+          let commission = 10; // Default
+          if (privateGameBet && privateGameBet > 0) {
+            const commissionValue = await supabaseDbService.getAdminSetting("private_game_commission");
+            if (commissionValue) {
+              commission = parseInt(commissionValue);
             }
-            rooms.set(roomId, {
-              id: roomId,
-              players: [],
-              gameState: null,
-              status: "waiting",
-              creatorId: id,
-              privateGameBet: privateGameBet || 0,
-              privateGameCommission: commission
-            });
-          } catch (e) {
-            console.error('Failed to load commission:', e);
-            rooms.set(roomId, {
-              id: roomId,
-              players: [],
-              gameState: null,
-              status: "waiting",
-              creatorId: id,
-              privateGameBet: privateGameBet || 0,
-              privateGameCommission: 10
-            });
           }
-        })();
+          rooms.set(roomId, {
+            id: roomId,
+            players: [],
+            gameState: null,
+            status: "waiting",
+            creatorId: id,
+            privateGameBet: privateGameBet || 0,
+            privateGameCommission: commission
+          });
+        } catch (e) {
+          console.error('Failed to load commission:', e);
+          rooms.set(roomId, {
+            id: roomId,
+            players: [],
+            gameState: null,
+            status: "waiting",
+            creatorId: id,
+            privateGameBet: privateGameBet || 0,
+            privateGameCommission: 10
+          });
+        }
       }
       const room = rooms.get(roomId);
 
@@ -1175,16 +1206,14 @@ async function startServer() {
             io.to(roomId).emit("room-update", state);
             return;
           }
-          state.bonusSteps = 10; // Goal bonus
-          io.to(roomId).emit("room-update", state);
+          assignBonus(room, roomId, 10); // Goal bonus
           return;
         }
 
         // Check capture after bonus move
         if (newPos >= 1 && newPos <= BOARD_SIZE) {
           if (checkCapture(state, state.currentTurn, newPos)) {
-            state.bonusSteps = 20; // Capture bonus
-            io.to(roomId).emit("room-update", state);
+            assignBonus(room, roomId, 20); // Capture bonus
             return;
           }
         }
@@ -1225,8 +1254,7 @@ async function startServer() {
 
         // Check capture on exit
         if (checkCapture(state, state.currentTurn, exitPos)) {
-          state.bonusSteps = 20;
-          io.to(roomId).emit("room-update", state);
+          assignBonus(room, roomId, 20);
           return;
         }
 
@@ -1266,16 +1294,14 @@ async function startServer() {
           io.to(roomId).emit("room-update", state);
           return;
         }
-        state.bonusSteps = 10;
-        io.to(roomId).emit("room-update", state);
+        assignBonus(room, roomId, 10);
         return;
       }
 
       // Check capture
       if (newPos >= 1 && newPos <= BOARD_SIZE) {
         if (checkCapture(state, state.currentTurn, newPos)) {
-          state.bonusSteps = 20;
-          io.to(roomId).emit("room-update", state);
+          assignBonus(room, roomId, 20);
           return;
         }
       }

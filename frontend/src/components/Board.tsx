@@ -115,14 +115,25 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
     if (isHome) {
       point = getHomeCoords(token.color, tokenIndex);
     } else if (isGoal) {
-      // Place goal tokens in the center square, offset by color quadrant
-      const goalOffsets: Record<PlayerColor, { x: number; y: number }> = {
-        green:  { x: 7.5,  y: 7.5  },
-        red:    { x: 8.5,  y: 7.5  },
-        yellow: { x: 7.5,  y: 8.5  },
-        blue:   { x: 8.5,  y: 8.5  },
+      // Place goal tokens in each color's triangle of the center
+      const quadrantCenter: Record<PlayerColor, { x: number; y: number }> = {
+        green:  { x: 7.4,  y: 7.4  },
+        red:    { x: 8.6,  y: 7.4  },
+        yellow: { x: 7.4,  y: 8.6  },
+        blue:   { x: 8.6,  y: 8.6  },
       };
-      point = goalOffsets[token.color];
+      // Spread multiple tokens within the quadrant
+      const spreadOffsets: { x: number; y: number }[][] = [
+        [{ x: 0, y: 0 }],
+        [{ x: -0.22, y: -0.12 }, { x: 0.22, y: 0.12 }],
+        [{ x: 0, y: -0.22 }, { x: -0.22, y: 0.12 }, { x: 0.22, y: 0.12 }],
+        [{ x: -0.2, y: -0.2 }, { x: 0.2, y: -0.2 }, { x: -0.2, y: 0.2 }, { x: 0.2, y: 0.2 }],
+      ];
+      const base = quadrantCenter[token.color];
+      const offsets = spreadOffsets[Math.min(sameColorCount, 4) - 1] || spreadOffsets[0];
+      const off = offsets[tokenIndex % offsets.length];
+      point = { x: base.x + off.x, y: base.y + off.y };
+      scale = 0.35;
     } else if (token.position > 68) {
       point = getFinalPathCoords(token.color, token.position);
     } else {
@@ -171,13 +182,14 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
           scale = 0.38;
         }
       } else if (activeColors.length > 1) {
-        // Multiple colors but no blocking: distribute colors
+        // Multiple colors but no blocking: distribute evenly centered
         const colorIndex = activeColors.indexOf(token.color);
-        const offsets = orientation === 'vertical'
-          ? [{ x: -80, y: 0 }, { x: -26, y: 0 }, { x: 26, y: 0 }, { x: 80, y: 0 }]
-          : [{ x: 0, y: -80 }, { x: 0, y: -26 }, { x: 0, y: 26 }, { x: 0, y: 80 }];
-        offset = offsets[colorIndex] || { x: 0, y: 0 };
-        scale = 0.40;
+        const count = activeColors.length;
+        // Spread evenly: for 2 → [-50, 50], for 3 → [-66, 0, 66], for 4 → [-80, -26, 26, 80]
+        const spread = count <= 2 ? 100 : 160;
+        const pos = count === 1 ? 0 : ((colorIndex / (count - 1)) - 0.5) * spread;
+        offset = orientation === 'vertical' ? { x: pos, y: 0 } : { x: 0, y: pos };
+        scale = count <= 2 ? 0.45 : 0.40;
       } else {
         scale = 0.55;
       }
@@ -248,49 +260,6 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
           ))}
         </div>
 
-        {/* Dice popup above pending token */}
-        {pendingToken && (() => {
-          const pt = pendingToken;
-          if (pt.position === -1) return null;
-          const popupTokenCoords = getTokenCoords(pt);
-          if (pendingDice.length === 0) return null;
-
-          return (
-            <div
-              className="absolute z-[60] pointer-events-auto"
-              style={{
-                left: `${(popupTokenCoords.anchor.x / GRID) * 100}%`,
-                top: `${(popupTokenCoords.anchor.y / GRID) * 100}%`,
-                transform: `rotate(${-rotationDeg}deg) translate(-50%, calc(-100% - 8px))`,
-                transformOrigin: '0 0',
-              }}
-            >
-              <motion.div
-                key={pt.id}
-                initial={{ opacity: 0, scale: 0.7, y: 6 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.7 }}
-                className="flex gap-1 items-center bg-black/75 backdrop-blur-sm border border-white/20 rounded-xl px-2 py-1 shadow-xl"
-              >
-                {pendingDice.map((die, idx) => {
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => onDieSelect?.(die)}
-                      className={cn(
-                        "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md transition-all",
-                        "bg-white active:scale-90 cursor-pointer"
-                      )}
-                    >
-                      {die}
-                    </button>
-                  );
-                })}
-              </motion.div>
-            </div>
-          );
-        })()}
-
         {/* Highlights */}
         {highlightedPositions.map((pos, idx) => {
           const point = pos > 68 ? getFinalPathCoords(tokens[0]?.color || 'red', pos) : getSquareCoords(pos);
@@ -309,6 +278,93 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
           );
         })}
       </div>
+
+      {/* Dice popup - outside overflow-hidden so it doesn't get clipped */}
+      {pendingToken && (() => {
+        const pt = pendingToken;
+        if (pt.position === -1) return null;
+        const popupTokenCoords = getTokenCoords(pt);
+        if (pendingDice.length === 0) return null;
+
+        const ax = popupTokenCoords.anchor.x;
+        const ay = popupTokenCoords.anchor.y;
+        const margin = 2.5;
+        const center = GRID / 2;
+
+        // Convert board coords to screen coords accounting for board rotation
+        const rad = (rotationDeg * Math.PI) / 180;
+        const dx = ax - center;
+        const dy = ay - center;
+        const screenX = center + dx * Math.cos(rad) - dy * Math.sin(rad);
+        const screenY = center + dx * Math.sin(rad) + dy * Math.cos(rad);
+
+        const nearTop = screenY < margin;
+        const nearBottom = screenY > GRID - margin;
+        const nearLeft = screenX < margin;
+        const nearRight = screenX > GRID - margin;
+
+        let translateX = '-50%';
+        let translateY = 'calc(-100% - 12px)'; // default: above
+
+        if (nearTop) {
+          translateY = '12px'; // flip below
+        }
+        if (nearLeft) {
+          translateX = '0%';
+        } else if (nearRight) {
+          translateX = '-100%';
+        }
+
+        return (
+          <div
+            className="absolute z-[60] pointer-events-none"
+            style={{
+              aspectRatio: '1 / 1',
+              width: 'clamp(100%, 100vmin, 800px)',
+              height: 'clamp(100%, 100vmin, 800px)',
+              minWidth: '100%',
+              transform: `rotate(${rotationDeg}deg)`,
+              transformOrigin: 'center center',
+            }}
+          >
+            <div
+              className="absolute pointer-events-auto"
+              style={{
+                left: `${(ax / GRID) * 100}%`,
+                top: `${(ay / GRID) * 100}%`,
+              }}
+            >
+              <div style={{
+                transform: `rotate(${-rotationDeg}deg)`,
+                transformOrigin: '0 0',
+              }}>
+                <div style={{ transform: `translate(${translateX}, ${translateY})` }}>
+                  <motion.div
+                    key={pt.id}
+                    initial={{ opacity: 0, scale: 0.7, y: nearTop ? -6 : 6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.7 }}
+                    className="flex gap-1 items-center bg-black/85 backdrop-blur-md border border-white/25 rounded-xl px-2.5 py-1.5 shadow-2xl"
+                  >
+                    {pendingDice.map((die, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => onDieSelect?.(die)}
+                        className={cn(
+                          "w-8 h-8 sm:w-9 sm:h-9 rounded-lg text-slate-900 font-black text-base flex items-center justify-center shadow-md transition-all",
+                          "bg-white active:scale-90 cursor-pointer"
+                        )}
+                      >
+                        {die}
+                      </button>
+                    ))}
+                  </motion.div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </motion.div>
   );
 };

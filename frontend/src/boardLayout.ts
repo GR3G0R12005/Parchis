@@ -44,19 +44,20 @@ export const getHomeCoords = (color: PlayerColor, index: number): Point => {
   return { x, y };
 };
 
-const FINAL_LANES_XZ: Record<PlayerColor, [number, number][]> = {
-  // Entrance (69) to square before goal (75)
-  green: [[0, 27], [0, 24], [0, 21], [0, 18], [0, 15], [0, 12], [0, 9]],
-  red: [[27, 0], [24, 0], [21, 0], [18, 0], [15, 0], [12, 0], [9, 0]],
-  blue: [[0, -27], [0, -24], [0, -21], [0, -18], [0, -15], [0, -12], [0, -9]],
-  yellow: [[-27, 0], [-24, 0], [-21, 0], [-18, 0], [-15, 0], [-12, 0], [-9, 0]],
+// Final lanes using direct grid coordinates (centered on cells)
+const FINAL_LANES_GRID: Record<PlayerColor, [number, number][]> = {
+  // Entrance (69) to square before goal (75): [x, y] in grid coords
+  green:  [[8, 1], [8, 2], [8, 3], [8, 4], [8, 5], [8, 6], [8, 7]],
+  red:    [[15, 8], [14, 8], [13, 8], [12, 8], [11, 8], [10, 8], [9, 8]],
+  blue:   [[8, 15], [8, 14], [8, 13], [8, 12], [8, 11], [8, 10], [8, 9]],
+  yellow: [[1, 8], [2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [7, 8]],
 };
 
 export const getFinalPathCoords = (color: PlayerColor, pos: number): Point => {
-  const lane = FINAL_LANES_XZ[color];
+  const lane = FINAL_LANES_GRID[color];
   const idx = Math.max(0, Math.min(lane.length - 1, pos - 69));
-  const [x, z] = lane[idx];
-  return mapBoardPoint(x, z);
+  const [x, y] = lane[idx];
+  return { x, y };
 };
 
 export const getSquareOrientation = (pos: number, color?: PlayerColor): 'horizontal' | 'vertical' => {
