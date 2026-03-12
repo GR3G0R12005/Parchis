@@ -8,15 +8,15 @@ async function createAdmin() {
   const password = 'Admin123';
   const username = 'Admin';
 
-  console.log('🔧 Creating admin user...\n');
+  console.log('[INFO] Creating admin user...\n');
 
   try {
     // Step 1: Check if user already exists
-    console.log('1️⃣ Checking if user exists...');
+    console.log('[1] Checking if user exists...');
     const existingUser = await supabaseDbService.getUserByEmail(email);
 
     if (existingUser) {
-      console.log('⚠️  User already exists with ID:', existingUser.id);
+      console.log('[WARN] User already exists with ID:', existingUser.id);
       console.log('   Skipping creation...\n');
 
       // Check if already admin
@@ -27,24 +27,24 @@ async function createAdmin() {
         .single();
 
       if (adminCheck) {
-        console.log('✅ User is already an admin!\n');
-        console.log('📋 Credentials:');
+        console.log('[OK] User is already an admin!\n');
+        console.log('[INFO] Credentials:');
         console.log(`   Email: ${email}`);
         console.log(`   Password: ${password}`);
         console.log(`   UUID: ${existingUser.id}\n`);
         process.exit(0);
       } else {
-        console.log('⚠️  User exists but is not admin. Making them admin...');
+        console.log('[WARN] User exists but is not admin. Making them admin...');
         await supabaseAdmin
           .from('admin_users')
           .insert([{ id: existingUser.id, role: 'admin' }]);
-        console.log('✅ User is now admin!\n');
+        console.log('[OK] User is now admin!\n');
         process.exit(0);
       }
     }
 
     // Step 2: Create user in Supabase Auth
-    console.log('2️⃣ Creating user in Supabase Auth...');
+    console.log('[2] Creating user in Supabase Auth...');
     const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -52,58 +52,58 @@ async function createAdmin() {
     });
 
     if (authError) {
-      console.error('❌ Auth creation error:', authError.message);
+      console.error('[ERROR] Auth creation error:', authError.message);
       process.exit(1);
     }
 
     const userId = authData.user?.id;
-    console.log('✅ User created in Auth');
+    console.log('[OK] User created in Auth');
     console.log(`   UUID: ${userId}\n`);
 
     // Step 3: Create user profile
-    console.log('3️⃣ Creating user profile...');
+    console.log('[3] Creating user profile...');
     const profile = await supabaseDbService.createUser(
       userId || '',
       username,
       email,
       'https://api.dicebear.com/7.x/pixel-art/svg?seed=Admin'
     );
-    console.log('✅ Profile created');
+    console.log('[OK] Profile created');
     console.log(`   Username: ${profile.username}`);
     console.log(`   Coins: ${profile.coins}`);
     console.log(`   Gems: ${profile.gems}\n`);
 
     // Step 4: Make user admin
-    console.log('4️⃣ Making user admin...');
+    console.log('[4] Making user admin...');
     const { error: adminError } = await supabaseAdmin
       .from('admin_users')
       .insert([{ id: userId, role: 'admin' }]);
 
     if (adminError) {
-      console.error('❌ Admin creation error:', adminError.message);
+      console.error('[ERROR] Admin creation error:', adminError.message);
       process.exit(1);
     }
 
-    console.log('✅ User is now admin\n');
+    console.log('[OK] User is now admin\n');
 
     // Step 5: Verify
-    console.log('5️⃣ Verifying credentials...');
+    console.log('[5] Verifying credentials...');
     const { data: verifyData, error: verifyError } = await supabaseAdmin.auth.admin.getUserById(userId || '');
 
     if (verifyError) {
-      console.error('❌ Verification error:', verifyError.message);
+      console.error('[ERROR] Verification error:', verifyError.message);
       process.exit(1);
     }
 
-    console.log('✅ Verification successful!\n');
+    console.log('[OK] Verification successful!\n');
 
     console.log('=' .repeat(50));
-    console.log('🎉 ADMIN USER CREATED SUCCESSFULLY!\n');
-    console.log('📋 Login Credentials:');
+    console.log('[SUCCESS] ADMIN USER CREATED SUCCESSFULLY!\n');
+    console.log('[INFO] Login Credentials:');
     console.log(`   Email: ${email}`);
     console.log(`   Password: ${password}`);
     console.log(`   UUID: ${userId}\n`);
-    console.log('🚀 Next steps:');
+    console.log('[INFO] Next steps:');
     console.log('   1. Reload your browser (F5)');
     console.log('   2. Try logging in with the credentials above');
     console.log('   3. Go to Settings → Admin Panel');
@@ -112,7 +112,7 @@ async function createAdmin() {
     process.exit(0);
 
   } catch (e: any) {
-    console.error('❌ Error:', e.message);
+    console.error('[ERROR] Error:', e.message);
     console.error('\nPossible causes:');
     console.error('   1. Supabase credentials not set in .env');
     console.error('   2. Network connectivity issue');

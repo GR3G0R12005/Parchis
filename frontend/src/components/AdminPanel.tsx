@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { cn } from '../utils';
 import { authService } from '../services/authService';
-import { Coins, Gem, Plus, Edit2, Trash2, Upload, X, Check, AlertCircle, BarChart3, Package, Image, Sparkles, RefreshCw } from 'lucide-react';
+import { Coins, Gem, Plus, Edit2, Trash2, Upload, X, Check, AlertCircle, BarChart3, Package, Image, Sparkles, RefreshCw, Swords, Trophy, Briefcase } from 'lucide-react';
 
 interface StorePackage {
   id: string;
@@ -35,6 +35,17 @@ interface TokenStyle {
   image_blue?: string;
 }
 
+interface GameMode {
+  id: string;
+  name: string;
+  display_name: string;
+  description?: string;
+  entry_fee: number;
+  admin_cut: number;
+  is_active: boolean;
+  is_default: boolean;
+}
+
 interface Statistics {
   activeGames: number;
   activeUsers: number;
@@ -62,10 +73,14 @@ const safeFetch = async (url: string, options?: RequestInit): Promise<any> => {
 };
 
 export const AdminPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'packages' | 'boards' | 'tokens'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'packages' | 'boards' | 'tokens' | 'game-modes'>('dashboard');
   const [packages, setPackages] = useState<StorePackage[]>([]);
   const [boards, setBoards] = useState<BoardTheme[]>([]);
   const [tokens, setTokens] = useState<TokenStyle[]>([]);
+  const [gameModes, setGameModes] = useState<GameMode[]>([]);
+  const [privateGameCommission, setPrivateGameCommission] = useState(10);
+  const [editingCommission, setEditingCommission] = useState(false);
+  const [commissionInput, setCommissionInput] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -96,6 +111,11 @@ export const AdminPanel: React.FC = () => {
   const [tokenColorFiles, setTokenColorFiles] = useState<Record<string, File | null>>({ red: null, yellow: null, green: null, blue: null });
   const [tokenColorPreviews, setTokenColorPreviews] = useState<Record<string, string | null>>({ red: null, yellow: null, green: null, blue: null });
 
+  // Game mode states
+  const [newGameMode, setNewGameMode] = useState(false);
+  const [newModeData, setNewModeData] = useState({ name: '', display_name: '', description: '', entry_fee: 0, admin_cut: 0 });
+  const [editingMode, setEditingMode] = useState<Partial<GameMode> | null>(null);
+
   const loadStats = useCallback(async () => {
     try {
       const data = await safeFetch('/api/admin/statistics', {
@@ -106,6 +126,18 @@ export const AdminPanel: React.FC = () => {
       }
     } catch (e) {
       console.error('Stats load failed:', e);
+    }
+  }, []);
+
+  const loadPrivateCommission = useCallback(async () => {
+    try {
+      const data = await safeFetch('/api/admin/settings/private-commission');
+      if (data && typeof data.commission === 'number') {
+        setPrivateGameCommission(data.commission);
+        setCommissionInput(data.commission);
+      }
+    } catch (e) {
+      console.error('Commission load failed:', e);
     }
   }, []);
 
@@ -162,11 +194,27 @@ export const AdminPanel: React.FC = () => {
     }
   }, []);
 
+  const loadGameModes = useCallback(async () => {
+    try {
+      const data = await safeFetch('/api/game-modes');
+      if (Array.isArray(data)) {
+        setGameModes(data);
+      } else {
+        setGameModes([]);
+      }
+    } catch (e: any) {
+      console.error('Game modes load failed:', e);
+      setGameModes([]);
+    }
+  }, []);
+
   useEffect(() => {
     loadPackages();
     loadBoards();
     loadTokens();
+    loadGameModes();
     loadStats();
+    loadPrivateCommission();
     const interval = setInterval(loadStats, 10000);
     return () => clearInterval(interval);
   }, [loadPackages, loadBoards, loadTokens, loadStats]);
@@ -387,11 +435,83 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
+  // Game modes handlers
+  const handleCreateGameMode = async () => {
+    if (!newModeData.name || !newModeData.display_name) {
+      setError('Completa nombre e ID');
+      return;
+    }
+    try {
+      setLoading(true);
+      await safeFetch('/api/admin/game-modes', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          name: newModeData.name,
+          display_name: newModeData.display_name,
+          description: newModeData.description,
+          entry_fee: newModeData.entry_fee || 0,
+          admin_cut: newModeData.admin_cut || 0,
+        }),
+      });
+      setSuccess('Modo de juego creado!');
+      setNewGameMode(false);
+      setNewModeData({ name: '', display_name: '', description: '', entry_fee: 0, admin_cut: 0 });
+      loadGameModes();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateGameMode = async (mode: GameMode) => {
+    try {
+      setLoading(true);
+      await safeFetch(`/api/admin/game-modes/${mode.id}`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          display_name: mode.display_name,
+          description: mode.description,
+          entry_fee: mode.entry_fee,
+          admin_cut: mode.admin_cut,
+          is_active: mode.is_active,
+        }),
+      });
+      setSuccess('Modo actualizado!');
+      loadGameModes();
+      setEditingMode(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteGameMode = async (id: string) => {
+    if (!confirm('Eliminar este modo de juego?')) return;
+    try {
+      setLoading(true);
+      await safeFetch(`/api/admin/game-modes/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      setSuccess('Modo eliminado!');
+      loadGameModes();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const tabs = [
     { id: 'dashboard' as const, label: 'Stats', icon: BarChart3 },
     { id: 'packages' as const, label: 'Packs', icon: Package },
     { id: 'boards' as const, label: 'Boards', icon: Image },
     { id: 'tokens' as const, label: 'Tokens', icon: Sparkles },
+    { id: 'game-modes' as const, label: 'Game Modes', icon: Swords },
   ];
 
   return (
@@ -842,7 +962,10 @@ export const AdminPanel: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-purple-400 font-bold text-sm">{board.price_gems} 💎</span>
+                        <div className="flex items-center gap-1">
+                          <Gem className="w-4 h-4 text-purple-400" />
+                          <span className="text-purple-400 font-bold text-sm">{board.price_gems}</span>
+                        </div>
                         <div className="flex gap-2">
                           <button
                             onClick={() => setEditingBoard(board)}
@@ -971,8 +1094,11 @@ export const AdminPanel: React.FC = () => {
                     <h3 className="text-white font-bold text-sm">{tok.display_name}</h3>
                     <p className="text-white/30 text-[10px] font-mono">{tok.name}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-purple-400 font-bold text-sm">{tok.price_gems} 💎</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1">
+                      <Gem className="w-4 h-4 text-purple-400" />
+                      <span className="text-purple-400 font-bold text-sm">{tok.price_gems}</span>
+                    </div>
                     <span className={cn(
                       'px-2 py-0.5 rounded-full text-[10px] font-bold',
                       tok.is_active ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'
@@ -1001,6 +1127,301 @@ export const AdminPanel: React.FC = () => {
                 </div>
               </motion.div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'game-modes' && (
+        <div className="space-y-4">
+          {/* Create New Mode */}
+          {!newGameMode ? (
+            <button
+              onClick={() => setNewGameMode(true)}
+              className="w-full bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-2xl p-4 flex items-center gap-3 transition-all"
+            >
+              <Plus className="w-5 h-5 text-blue-400" />
+              <span className="text-blue-200 font-bold uppercase tracking-wider text-sm">Crear Nuevo Modo</span>
+            </button>
+          ) : (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+              <h3 className="text-white font-bold text-sm uppercase tracking-widest">Nuevo Modo de Juego</h3>
+              <input
+                type="text"
+                placeholder="ID del Modo (ej: rookie)"
+                value={newModeData.name}
+                onChange={(e) => setNewModeData({...newModeData, name: e.target.value})}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+              />
+              <input
+                type="text"
+                placeholder="Nombre (ej: ROOKIE TABLE)"
+                value={newModeData.display_name}
+                onChange={(e) => setNewModeData({...newModeData, display_name: e.target.value})}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+              />
+              <input
+                type="text"
+                placeholder="Descripción (opcional)"
+                value={newModeData.description}
+                onChange={(e) => setNewModeData({...newModeData, description: e.target.value})}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-white/60 text-xs font-bold uppercase block mb-1">Entrada por Jugador</label>
+                  <input
+                    type="number"
+                    placeholder="500"
+                    value={newModeData.entry_fee}
+                    onChange={(e) => setNewModeData({...newModeData, entry_fee: parseInt(e.target.value) || 0})}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+                  />
+                </div>
+                <div>
+                  <label className="text-white/60 text-xs font-bold uppercase block mb-1">Comisión Admin</label>
+                  <input
+                    type="number"
+                    placeholder="100"
+                    value={newModeData.admin_cut}
+                    onChange={(e) => setNewModeData({...newModeData, admin_cut: parseInt(e.target.value) || 0})}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+                  />
+                </div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-2 text-xs text-white/60 space-y-1">
+                <div className="flex items-center gap-2">
+                  <Coins className="w-4 h-4 text-emerald-400" />
+                  <span>Pool Total (4 jugadores): {newModeData.entry_fee * 4}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-yellow-400" />
+                  <span>Premio Ganador: {newModeData.entry_fee * 4 - newModeData.admin_cut}</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreateGameMode}
+                  disabled={loading}
+                  className="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-xl transition-all disabled:opacity-50"
+                >
+                  Crear
+                </button>
+                <button
+                  onClick={() => setNewGameMode(false)}
+                  className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold py-2 rounded-xl transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modes List */}
+          <div className="space-y-3">
+            {gameModes.map((mode) => (
+              <div key={mode.id} className={cn(
+                'bg-white/5 border border-white/10 rounded-2xl p-4 space-y-2',
+                editingMode?.id === mode.id && 'border-blue-500/50 bg-blue-500/10'
+              )}>
+                {editingMode?.id === mode.id ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editingMode.display_name || ''}
+                      onChange={(e) => setEditingMode({...editingMode, display_name: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+                    />
+                    <input
+                      type="text"
+                      value={editingMode.description || ''}
+                      onChange={(e) => setEditingMode({...editingMode, description: e.target.value})}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-white/60 text-xs font-bold uppercase block mb-1">Entrada por Jugador</label>
+                        <input
+                          type="number"
+                          value={editingMode.entry_fee || 0}
+                          onChange={(e) => setEditingMode({...editingMode, entry_fee: parseInt(e.target.value) || 0})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-white/60 text-xs font-bold uppercase block mb-1">Comisión Admin</label>
+                        <input
+                          type="number"
+                          value={editingMode.admin_cut || 0}
+                          onChange={(e) => setEditingMode({...editingMode, admin_cut: parseInt(e.target.value) || 0})}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/30"
+                        />
+                      </div>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-2 text-xs text-white/60 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Coins className="w-4 h-4 text-emerald-400" />
+                        <span>Pool Total: {(editingMode.entry_fee || 0) * 4}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Trophy className="w-4 h-4 text-yellow-400" />
+                        <span>Premio Ganador: {((editingMode.entry_fee || 0) * 4) - (editingMode.admin_cut || 0)}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={editingMode.is_active || false}
+                        onChange={(e) => setEditingMode({...editingMode, is_active: e.target.checked})}
+                        className="w-4 h-4"
+                      />
+                      <label className="text-white text-sm">Activo</label>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUpdateGameMode(editingMode as GameMode)}
+                        disabled={loading}
+                        className="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 rounded-xl transition-all disabled:opacity-50"
+                      >
+                        Guardar
+                      </button>
+                      <button
+                        onClick={() => setEditingMode(null)}
+                        className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold py-2 rounded-xl transition-all"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="text-white font-bold">{mode.display_name}</h4>
+                      {mode.description && <p className="text-white/60 text-sm">{mode.description}</p>}
+                      <p className="text-white/40 text-xs mt-1">ID: {mode.name}</p>
+                    </div>
+                    <div className="bg-white/5 rounded-xl p-2 text-xs text-white/70 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Coins className="w-4 h-4 text-emerald-400" />
+                        <span>Entrada: {mode.entry_fee} coins/jugador</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Briefcase className="w-4 h-4 text-orange-400" />
+                        <span>Comisión Admin: {mode.admin_cut} coins</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Trophy className="w-4 h-4 text-yellow-400" />
+                        <span>Premio Ganador: {mode.entry_fee * 4 - mode.admin_cut} coins</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {mode.is_active ? (
+                        <span className="text-green-400 text-xs font-bold">● ACTIVO</span>
+                      ) : (
+                        <span className="text-red-400 text-xs font-bold">● INACTIVO</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setEditingMode(mode)}
+                        className="flex-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2"
+                      >
+                        <Edit2 className="w-4 h-4" /> Editar
+                      </button>
+                      <button
+                        onClick={() => handleDeleteGameMode(mode.id)}
+                        className="flex-1 bg-red-500/20 hover:bg-red-500/30 text-red-200 font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" /> Eliminar
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Private Games Commission */}
+          <div className="border-t border-white/10 pt-6 mt-6">
+            <h3 className="text-white font-bold text-sm uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Coins className="w-4 h-4 text-yellow-400" /> Comisión Partidas Privadas
+            </h3>
+            {!editingCommission ? (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-1">Porcentaje de Comisión</p>
+                    <p className="text-white text-2xl font-heading">{privateGameCommission}%</p>
+                    <p className="text-white/40 text-xs mt-2">
+                      Ejemplo: 500 × 4 = 2000 coins<br/>
+                      Tu comisión: {Math.round(2000 * privateGameCommission / 100)} coins<br/>
+                      Ganador: {2000 - Math.round(2000 * privateGameCommission / 100)} coins
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setEditingCommission(true);
+                    setCommissionInput(privateGameCommission);
+                  }}
+                  className="w-full bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 font-bold py-2 rounded-xl transition-all flex items-center justify-center gap-2"
+                >
+                  <Edit2 className="w-4 h-4" /> Cambiar Porcentaje
+                </button>
+              </div>
+            ) : (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-3">
+                <div>
+                  <label className="text-white/60 text-xs font-bold uppercase block mb-3">Nuevo Porcentaje (%)</label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="50"
+                    step="1"
+                    value={commissionInput}
+                    onChange={(e) => setCommissionInput(parseInt(e.target.value))}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="text-center mt-4">
+                    <p className="text-white text-3xl font-heading">{commissionInput}%</p>
+                    <p className="text-white/60 text-xs mt-2">
+                      Comisión: {Math.round(2000 * commissionInput / 100)} coins | Ganador: {2000 - Math.round(2000 * commissionInput / 100)} coins
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      try {
+                        setLoading(true);
+                        await safeFetch('/api/admin/settings/private-commission', {
+                          method: 'PUT',
+                          headers: getAuthHeaders(),
+                          body: JSON.stringify({ commission: commissionInput }),
+                        });
+                        setPrivateGameCommission(commissionInput);
+                        setEditingCommission(false);
+                        setSuccess(`Comisión actualizada a ${commissionInput}%`);
+                        setTimeout(() => setSuccess(null), 3000);
+                      } catch (e: any) {
+                        setError(e.message);
+                      } finally {
+                        setLoading(false);
+                      }
+                    }}
+                    disabled={loading}
+                    className="flex-1 bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white font-bold py-2 rounded-xl transition-all"
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    onClick={() => setEditingCommission(false)}
+                    className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold py-2 rounded-xl transition-all"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

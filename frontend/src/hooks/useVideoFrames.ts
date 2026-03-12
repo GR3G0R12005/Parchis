@@ -1,18 +1,19 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Socket } from 'socket.io-client';
+import { useFrameRegistry } from './useVideoFrameRegistry';
 
 /**
  * Captures local camera frames and broadcasts them via socket.io,
  * and receives frames from remote peers.
- * Key = userId (Supabase UUID), Value = data URL (JPEG)
+ * Uses direct DOM ref updates via FrameRegistry to avoid React re-renders.
  */
 export function useVideoFrames(
   socket: Socket | null,
   roomId: string | null,
   userId: string | null,
   localStream: MediaStream | null
-): Map<string, string> {
-  const [frames, setFrames] = useState<Map<string, string>>(new Map());
+): void {
+  const registry = useFrameRegistry();
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -22,15 +23,12 @@ export function useVideoFrames(
     console.log('[VideoFrames] Listener registered — socket.id:', socket.id, 'connected:', socket.connected);
     const onFrame = ({ userId: uid, frame }: { userId: string; frame: string }) => {
       console.log('[VideoFrames] Received frame from userId:', uid?.slice(-6), 'size:', frame.length);
-      setFrames(prev => {
-        const next = new Map(prev);
-        next.set(uid, frame);
-        return next;
-      });
+      // Direct DOM update via registry — no React state
+      registry.updateFrame(uid, frame);
     };
     socket.on('video-frame', onFrame);
     return () => { socket.off('video-frame', onFrame); };
-  }, [socket]);
+  }, [socket, registry]);
 
   // Send own frames when local camera is active
   useEffect(() => {
@@ -61,34 +59,27 @@ export function useVideoFrames(
     const interval = setInterval(() => {
       if (video.readyState < 2) return; // not ready yet
       ctx.drawImage(video, 0, 0, 96, 96);
-      const frame = canvas.toDataURL('image/jpeg', 0.55);
-      socket.emit('video-frame', { roomId, userId, frame });
-      if (sent++ === 0) console.log('[VideoFrames] Sending frames — roomId:', roomId, 'userId:', userId?.slice(-6));
-      // Update own avatar locally too
-      setFrames(prev => {
-        const next = new Map(prev);
-        next.set(userId, frame);
-        return next;
-      });
+      // Use async toBlob to avoid blocking main thread with JPEG encoding
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const frame = URL.createObjectURL(blob);
+        socket.emit('video-frame', { roomId, userId, frame });
+        if (sent++ === 0) console.log('[VideoFrames] Sending frames — roomId:', roomId, 'userId:', userId?.slice(-6));
+        // Update own avatar locally via registry — no React state update
+        registry.updateFrame(userId, frame);
+      }, 'image/jpeg', 0.55);
     }, 400); // ~2.5 fps — enough for an avatar
 
     return () => {
       clearInterval(interval);
       video.srcObject = null;
     };
-  }, [socket, roomId, userId, localStream]);
+  }, [socket, roomId, userId, localStream, registry]);
 
   // Clear own frame when camera is turned off
   useEffect(() => {
     if (!localStream && userId) {
-      setFrames(prev => {
-        if (!prev.has(userId)) return prev; // already absent — bail out, no re-render
-        const next = new Map(prev);
-        next.delete(userId);
-        return next;
-      });
+      registry.setVideoActive(userId, false);
     }
-  }, [localStream, userId]);
-
-  return frames;
+  }, [localStream, userId, registry]);
 }

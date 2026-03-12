@@ -20,7 +20,7 @@ async function setupDatabase() {
 
     if (error) {
       // Try splitting by semicolons and executing one by one
-      console.log('⚠️  Full schema execution failed, trying individual statements...\n');
+      console.log('[WARN]  Full schema execution failed, trying individual statements...\n');
 
       const statements = schema
         .split(';')
@@ -38,27 +38,27 @@ async function setupDatabase() {
             console.log('✓', statement.substring(0, 60) + '...');
           } else {
             errorCount++;
-            console.log('⚠️', statement.substring(0, 60) + '... (Error: ' + stmtError.message + ')');
+            console.log('[WARN]', statement.substring(0, 60) + '... (Error: ' + stmtError.message + ')');
           }
         } catch (e: any) {
           errorCount++;
-          console.log('⚠️', statement.substring(0, 60) + '... (Error: ' + e.message + ')');
+          console.log('[WARN]', statement.substring(0, 60) + '... (Error: ' + e.message + ')');
         }
       }
 
       console.log(`\n📊 Results: ${successCount} successful, ${errorCount} failed/skipped\n`);
     } else {
-      console.log('✅ Schema executed successfully!\n');
+      console.log('[OK] Schema executed successfully!\n');
     }
 
-    console.log('✅ Database setup complete!');
-    console.log('\n⚡ Now run this to create the admin user:');
+    console.log('[OK] Database setup complete!');
+    console.log('\n[NEXT] Now run this to create the admin user:');
     console.log('   npx tsx createAdmin.ts\n');
 
     process.exit(0);
 
   } catch (e: any) {
-    console.error('❌ Error:', e.message);
+    console.error('[ERROR] Error:', e.message);
     console.error('\n📝 Note: The RPC method may not be available.');
     console.error('   Please execute the schema manually in Supabase Dashboard.');
     console.error('   Then run: npx tsx createAdmin.ts\n');

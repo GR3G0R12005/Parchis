@@ -12,7 +12,8 @@ import { AuthView } from './components/AuthView';
 import { CustomizationModal } from './components/CustomizationModal';
 import { AdminPanel } from './components/AdminPanel';
 import { GameComms } from './components/GameComms';
-import { Trophy, Users, Coins, X, ShoppingBag, Settings as SettingsIcon, Key, Flag, RotateCcw, Dice1, Check, LogOut, Gem, Palette, Shield, Package, Image, Sparkles } from 'lucide-react';
+import { FrameRegistryProvider } from './hooks/useVideoFrameRegistry';
+import { Users, Coins, X, ShoppingBag, Settings as SettingsIcon, Key, Flag, RotateCcw, Dice1, Check, LogOut, Gem, Palette, Shield, Package, Image, Sparkles, Trophy, BarChart3, Volume2, Heart, Briefcase, AlertCircle, Smartphone } from 'lucide-react';
 
 // --- Modal Component ---
 const Modal: React.FC<{ isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; small?: boolean }> = ({ isOpen, onClose, title, children, small }) => (
@@ -58,6 +59,7 @@ interface GameSession {
 interface GameResultModalState {
   winnerColor: string;
   didWin: boolean;
+  coinsDelta?: number;
 }
 
 const saveSession = (session: GameSession) => {
@@ -108,6 +110,7 @@ export default function App() {
   const [storeBoards, setStoreBoards] = useState<{ id: string; name: string; display_name: string; description: string; image_url: string; price_gems: number }[]>([]);
   const [storeTokens, setStoreTokens] = useState<{ id: string; name: string; display_name: string; description: string; price_gems: number; image_red?: string; image_yellow?: string; image_green?: string; image_blue?: string }[]>([]);
   const [myPurchases, setMyPurchases] = useState<{ item_type: string; item_id: string }[]>([]);
+  const [gameModes, setGameModes] = useState<{ id: string; name: string; display_name: string; description?: string; is_active: boolean; is_default: boolean }[]>([]);
   const [shopTab, setShopTab] = useState<'packs' | 'boards' | 'tokens'>('packs');
   const [showProfilePopup, setShowProfilePopup] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
@@ -115,8 +118,10 @@ export default function App() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [checkingAdmin, setCheckingAdmin] = useState(true);
 
-  // Video frames from in-game comms (userId → JPEG data URL)
-  const [peerVideoFrames, setPeerVideoFrames] = useState<Map<string, string>>(new Map());
+  // Coin animation feedback
+  const [coinsAnimation, setCoinsAnimation] = useState<{ delta: number; show: boolean } | null>(null);
+  const [privateGameBet, setPrivateGameBet] = useState(0);
+  const [showPrivateBetModal, setShowPrivateBetModal] = useState(false);
 
   // Music State
   const [musicEnabled, setMusicEnabled] = useState(() => {
@@ -130,6 +135,7 @@ export default function App() {
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const diceSoundRef = React.useRef<HTMLAudioElement>(null);
   const tokenSoundRef = React.useRef<HTMLAudioElement>(null);
+  const captureSoundRef = React.useRef<HTMLAudioElement>(null);
 
   const playTokenStep = React.useCallback(() => {
     const audio = tokenSoundRef.current;
@@ -143,6 +149,13 @@ export default function App() {
     if (!audio) return;
     audio.currentTime = 0;
     audio.playbackRate = 1.25;
+    audio.play().catch(() => {});
+  }, []);
+
+  const playCaptureSound = React.useCallback(() => {
+    const audio = captureSoundRef.current;
+    if (!audio) return;
+    audio.currentTime = 0;
     audio.play().catch(() => {});
   }, []);
 
@@ -223,6 +236,16 @@ export default function App() {
           if (Array.isArray(t)) setStoreTokens(t);
         }
       } catch (e) { console.log('Store tokens load failed:', e); }
+
+      // Load game modes
+      try {
+        const modesRes = await fetch('/api/game-modes');
+        const modesText = await modesRes.text();
+        if (modesText && modesRes.ok) {
+          const m = JSON.parse(modesText);
+          if (Array.isArray(m)) setGameModes(m);
+        }
+      } catch (e) { console.log('Game modes load failed:', e); }
 
       // Load my purchases
       if (token) {
@@ -320,6 +343,10 @@ export default function App() {
     });
 
     newSocket.on('room-update', (data: GameState) => {
+      // Detect capture: bonusSteps === 20 means a token was captured
+      if (data.bonusSteps === 20 && (!gameState || gameState.bonusSteps !== 20)) {
+        playCaptureSound();
+      }
       setGameState(data);
       // Clear session when game finishes
       if (data.status === 'finished') {
@@ -329,6 +356,18 @@ export default function App() {
 
     newSocket.on('player-surrendered', ({ color, username }: { color: string; username?: string }) => {
       showToast(`${username || color.toUpperCase()} se rindió.`, 'error');
+    });
+
+    newSocket.on('bet-deducted', ({ amount, remaining }: { amount: number; remaining: number }) => {
+      setCurrentUser((prev) => prev ? { ...prev, coins: remaining } : prev);
+      setCoinsAnimation({ delta: -amount, show: true });
+      setTimeout(() => setCoinsAnimation(null), 2000);
+      showToast(`Apuesta: -${amount} coins | Tienes: ${remaining} coins`, 'success');
+    });
+
+    newSocket.on('insufficient-funds', ({ required, have }: { required: number; have: number }) => {
+      const deficit = required - have;
+      showToast(`Coins insuficientes. Te faltan ${deficit} coins`, 'error');
     });
 
     newSocket.on('game-won', ({
@@ -345,10 +384,19 @@ export default function App() {
       if (typeof myCoinChange?.coins === 'number') {
         setCurrentUser((prev) => prev ? { ...prev, coins: myCoinChange.coins } : prev);
       }
-      showToast(didWin ? 'You Win!' : 'Game Over', didWin ? 'success' : 'error');
+
+      let toastMessage = didWin ? '¡GANASTE!' : 'Game Over';
+      let toastType: 'success' | 'error' = didWin ? 'success' : 'error';
+
+      if (didWin && myCoinChange?.delta) {
+        toastMessage = `¡GANASTE! +${myCoinChange.delta} coins`;
+      }
+
+      showToast(toastMessage, toastType);
       setGameResultModal({
         winnerColor,
         didWin,
+        coinsDelta: myCoinChange?.delta,
       });
       clearSession();
     });
@@ -458,11 +506,8 @@ export default function App() {
     authService.updateAvatar(currentUser.id, currentUser.avatar);
 
     if (mode === 'private') {
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-      setRoomCode(code);
-      setView('waiting-room');
-      socket?.emit('join-room', { roomId: code, id: currentUser.id });
-      saveSession({ roomCode: code, myColor: 'red', id: currentUser.id });
+      setShowPrivateBetModal(true);
+      setPrivateGameBet(500);
       return;
     }
     // Each public mode gets its own room
@@ -471,6 +516,17 @@ export default function App() {
     socket?.emit('join-room', { roomId: publicRoomId, id: currentUser.id });
     saveSession({ roomCode: publicRoomId, myColor: 'red', id: currentUser.id });
     setView('waiting-room');
+  };
+
+  const handleCreatePrivateGame = (betAmount: number) => {
+    if (!currentUser || betAmount <= 0) return;
+
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setRoomCode(code);
+    setView('waiting-room');
+    socket?.emit('join-room', { roomId: code, id: currentUser.id, privateGameBet: betAmount });
+    saveSession({ roomCode: code, myColor: 'red', id: currentUser.id });
+    setShowPrivateBetModal(false);
   };
 
   const handleJoinByCode = async (e: React.FormEvent) => {
@@ -839,7 +895,8 @@ export default function App() {
   }
 
   return (
-    <div className={cn("min-h-screen bg-background selection:bg-[#FF3D004D] relative", view === 'game' ? "h-[100dvh] overflow-hidden fixed inset-0" : "overflow-hidden")}>
+    <FrameRegistryProvider>
+      <div className={cn("min-h-screen bg-background selection:bg-[#FF3D004D] relative", view === 'game' ? "h-[100dvh] overflow-hidden fixed inset-0" : "overflow-hidden")}>
       {/* Background Music */}
       <audio
         ref={audioRef}
@@ -850,6 +907,7 @@ export default function App() {
       />
       <audio ref={diceSoundRef} src="https://supabase.cloudteco.com/storage/v1/object/public/assets/music/movimiento-dados.mp3" preload="auto" />
       <audio ref={tokenSoundRef} src="https://supabase.cloudteco.com/storage/v1/object/public/assets/music/movimiento-fichas.mp3" preload="auto" />
+      <audio ref={captureSoundRef} src="./music/FAAHH.mp3" preload="auto" />
 
       {/* Background Effect */}
       <div className="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
@@ -918,7 +976,22 @@ export default function App() {
             <div>
               <h3 className="text-white font-bold text-lg">{currentUser.username}</h3>
               <div className="flex items-center gap-3 mt-1">
-                <span className="flex items-center gap-1 text-yellow-400 text-xs font-bold"><Coins className="w-3 h-3" />{currentUser.coins?.toLocaleString()}</span>
+                <div className="relative">
+                  <span className="flex items-center gap-1 text-yellow-400 text-xs font-bold"><Coins className="w-3 h-3" />{currentUser.coins?.toLocaleString()}</span>
+                  {coinsAnimation && (
+                    <motion.div
+                      initial={{ opacity: 1, y: 0 }}
+                      animate={{ opacity: 0, y: -30 }}
+                      transition={{ duration: 1.5, ease: 'easeOut' }}
+                      className={cn(
+                        'absolute top-0 left-0 font-bold text-xs font-heading pointer-events-none',
+                        coinsAnimation.delta > 0 ? 'text-green-400' : 'text-red-400'
+                      )}
+                    >
+                      {coinsAnimation.delta > 0 ? '+' : ''}{coinsAnimation.delta}
+                    </motion.div>
+                  )}
+                </div>
                 <span className="flex items-center gap-1 text-purple-400 text-xs font-bold"><Gem className="w-3 h-3" />{currentUser.gems?.toLocaleString()}</span>
               </div>
             </div>
@@ -1097,10 +1170,8 @@ export default function App() {
               </AnimatePresence>
               <div className="w-full flex gap-4 sm:gap-6 max-w-6xl mx-auto overflow-x-auto no-scrollbar snap-x snap-mandatory pb-2 sm:grid sm:grid-cols-2 xl:grid-cols-4 sm:overflow-x-visible">
               {[
-                { id: 'rookie', name: 'ROOKIE TABLE', entry: '100', prize: '350', type: 'public' },
-                { id: 'pro', name: 'PRO ARENA', entry: '1,000', prize: '3,500', type: 'public' },
-                { id: 'private', name: 'PRIVATE MATCH', entry: '0', prize: 'VS FRIENDS', type: 'private' },
-                { id: 'legendary', name: 'LEGENDARY', entry: '50,000', prize: '180,000', type: 'public' },
+                { id: 'private', name: 'PRIVATE MATCH', display_name: 'PRIVATE MATCH', type: 'private', description: 'Play with friends' },
+                ...gameModes.map(m => ({ ...m, type: 'public' }))
               ].map((mode, idx) => (
                 <div key={idx} className="min-w-[75vw] sm:min-w-0 w-full snap-center">
                   <div className={cn(
@@ -1108,27 +1179,28 @@ export default function App() {
                     mode.type === 'private' && "border-yellow-500/30 bg-yellow-500/5"
                   )}>
                     <div>
-                      <h3 className="font-heading text-2xl sm:text-3xl xl:text-4xl leading-none mb-1 text-white">{mode.name}</h3>
+                      <h3 className="font-heading text-2xl sm:text-3xl xl:text-4xl leading-none mb-1 text-white">{mode.display_name || mode.name}</h3>
+                      {mode.description && <p className="text-slate-400 text-xs font-bold uppercase tracking-widest opacity-60 mb-2">{mode.description}</p>}
                       <div className="flex items-center gap-2 text-slate-400 text-xs font-bold uppercase tracking-widest opacity-60">
                         <Users className="w-3 h-3" />
                         <span>{mode.type === 'private' ? 'Invite Only' : '4 Players'}</span>
                       </div>
-                    </div>
-                    <div className="space-y-4 sm:space-y-6 my-6 sm:my-8">
-                      <div className="flex justify-between items-center bg-white/5 rounded-2xl p-3 sm:p-4">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Entry Fee</span>
-                        <div className="flex items-center gap-2 text-white">
-                          <Coins className="w-4 h-4 text-emerald-400" />
-                          <span className="font-heading text-xl sm:text-2xl">{mode.entry}</span>
+                      {mode.entry_fee !== undefined && mode.entry_fee > 0 && (
+                        <div className="mt-3 pt-3 border-t border-white/10 space-y-2 text-xs">
+                          <div className="flex justify-between text-white/70">
+                            <span>Entrada:</span>
+                            <span className="text-emerald-400 font-bold">{mode.entry_fee} coins</span>
+                          </div>
+                          <div className="flex justify-between text-white/70">
+                            <span>Pool:</span>
+                            <span className="text-yellow-400 font-bold">{(mode.entry_fee || 0) * 4} coins</span>
+                          </div>
+                          <div className="flex justify-between text-white/70">
+                            <span>Premio:</span>
+                            <span className="text-yellow-400 font-bold">{((mode.entry_fee || 0) * 4) - (mode.admin_cut || 0)} coins</span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex justify-between items-center bg-white/5 rounded-2xl p-3 sm:p-4">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Reward</span>
-                        <div className="flex items-center gap-2">
-                          <Trophy className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400" />
-                          <span className="font-heading text-2xl sm:text-3xl text-yellow-400">{mode.prize}</span>
-                        </div>
-                      </div>
+                      )}
                     </div>
                     {mode.type === 'private' ? (
                       <div className="grid grid-cols-2 gap-2">
@@ -1159,34 +1231,36 @@ export default function App() {
             >
               <div className="text-center">
                 <span className="text-[8px] sm:text-[10px] text-yellow-500 font-black uppercase tracking-[0.4em] mb-2 sm:mb-4 block">Waiting Room</span>
-                <h2 className="font-heading text-3xl sm:text-5xl md:text-6xl text-white mb-1 sm:mb-2 leading-none">INVITE FRIENDS</h2>
-                <div className="mt-4 sm:mt-8 flex flex-col items-center gap-3">
-                  <div className="bg-white/5 border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-3 sm:p-6 flex flex-col items-center gap-1 sm:gap-2 group cursor-pointer hover:bg-white/10 transition-all w-full"
-                    onClick={() => {
-                      navigator.clipboard.writeText(roomCode || '');
-                      showToast('Código copiado!');
-                    }}>
-                    <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase tracking-widest">Room Code</span>
-                    <div className="flex items-center gap-2 sm:gap-4">
-                      <span className="font-heading text-3xl sm:text-5xl md:text-6xl text-yellow-500 tracking-[0.15em] sm:tracking-[0.2em]">{roomCode}</span>
-                      <Key className="w-5 h-5 sm:w-8 sm:h-8 text-yellow-500/50" />
+                <h2 className="font-heading text-3xl sm:text-5xl md:text-6xl text-white mb-1 sm:mb-2 leading-none">{isPublicRoom ? 'MATCHMAKING' : 'INVITE FRIENDS'}</h2>
+                {!isPublicRoom && (
+                  <div className="mt-4 sm:mt-8 flex flex-col items-center gap-3">
+                    <div className="bg-white/5 border border-white/10 rounded-[1.5rem] sm:rounded-[2rem] p-3 sm:p-6 flex flex-col items-center gap-1 sm:gap-2 group cursor-pointer hover:bg-white/10 transition-all w-full"
+                      onClick={() => {
+                        navigator.clipboard.writeText(roomCode || '');
+                        showToast('Código copiado!');
+                      }}>
+                      <span className="text-[8px] sm:text-[10px] text-white/30 font-bold uppercase tracking-widest">Room Code</span>
+                      <div className="flex items-center gap-2 sm:gap-4">
+                        <span className="font-heading text-3xl sm:text-5xl md:text-6xl text-yellow-500 tracking-[0.15em] sm:tracking-[0.2em]">{roomCode}</span>
+                        <Key className="w-5 h-5 sm:w-8 sm:h-8 text-yellow-500/50" />
+                      </div>
                     </div>
+                    <button
+                      onClick={() => {
+                        const link = `${window.location.origin}/join/${roomCode}`;
+                        navigator.clipboard.writeText(link);
+                        showToast('Enlace copiado!');
+                      }}
+                      className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl px-4 py-2.5 text-white/60 text-xs font-bold uppercase tracking-widest transition-all active:scale-95"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                      </svg>
+                      Copiar Enlace
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      const link = `${window.location.origin}/join/${roomCode}`;
-                      navigator.clipboard.writeText(link);
-                      showToast('Enlace copiado!');
-                    }}
-                    className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl px-4 py-2.5 text-white/60 text-xs font-bold uppercase tracking-widest transition-all active:scale-95"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                    </svg>
-                    Copiar Enlace
-                  </button>
-                </div>
+                )}
               </div>
 
               <div className={cn(
@@ -1279,7 +1353,6 @@ export default function App() {
                     onPassDie={handlePassDie}
                     turnProgress={turnProgress}
                     turnSecondsLeft={Math.ceil(turnSecondsLeft)}
-                    peerVideoFrames={peerVideoFrames}
                   />
                 </div>
 
@@ -1322,7 +1395,6 @@ export default function App() {
                     onPassDie={handlePassDie}
                     turnProgress={turnProgress}
                     turnSecondsLeft={Math.ceil(turnSecondsLeft)}
-                    peerVideoFrames={peerVideoFrames}
                   />
                 </div>
               </div>
@@ -1340,7 +1412,6 @@ export default function App() {
           socket={socket}
           roomId={roomCode}
           currentUser={currentUser ? { id: currentUser.id, username: currentUser.username, avatar: currentUser.avatar } : null}
-          onFramesChange={setPeerVideoFrames}
         />
       )}
 
@@ -1703,7 +1774,7 @@ export default function App() {
               </div>
               {musicEnabled && (
                 <div className="flex items-center gap-3">
-                  <span className="text-sm text-white/70">🔊</span>
+                  <Volume2 className="w-4 h-4 text-white/70" />
                   <input
                     type="range"
                     min="0"
@@ -1750,11 +1821,89 @@ export default function App() {
         </div>
       </Modal>
 
-      <Modal isOpen={!!gameResultModal} onClose={handleLeaveRoom} title={gameResultModal?.didWin ? "You Win" : "Game Over"}>
+      {/* Private Game Bet Modal */}
+      <Modal isOpen={showPrivateBetModal} onClose={() => setShowPrivateBetModal(false)} title="Crear Partida Privada" small>
+        <div className="space-y-4">
+          <div>
+            <label className="text-white/60 text-xs font-bold uppercase block mb-2">Monto de Entrada por Jugador</label>
+            <input
+              type="number"
+              min="100"
+              step="100"
+              value={privateGameBet}
+              onChange={(e) => setPrivateGameBet(parseInt(e.target.value) || 0)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-3 text-white text-lg placeholder:text-white/30 font-bold"
+            />
+          </div>
+
+          {privateGameBet > 0 && (
+            <div className="bg-white/5 rounded-xl p-3 text-xs text-white/70 space-y-2">
+              <div className="flex items-center gap-2">
+                <Coins className="w-4 h-4 text-emerald-400" />
+                <span>Entrada: {privateGameBet} coins × 4 jugadores</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-blue-400" />
+                <span>Pool Total: {privateGameBet * 4} coins</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-orange-400" />
+                <span>Comisión Admin (10%): {Math.round(privateGameBet * 4 * 0.1)} coins</span>
+              </div>
+              <div className="flex items-center gap-2 text-yellow-400 font-bold">
+                <Trophy className="w-4 h-4 text-yellow-400" />
+                <span>Premio Ganador: {Math.round(privateGameBet * 4 * 0.9)} coins</span>
+              </div>
+            </div>
+          )}
+
+          {currentUser && currentUser.coins < privateGameBet && (
+            <div className="text-red-400 text-xs font-bold bg-red-400/10 p-2 rounded-xl text-center flex items-center justify-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              <span>No tienes suficientes coins ({currentUser.coins}/{privateGameBet})</span>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleCreatePrivateGame(privateGameBet)}
+              disabled={!currentUser || currentUser.coins < privateGameBet || privateGameBet <= 0}
+              className="flex-1 bg-yellow-500 hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-900 font-bold py-3 rounded-xl transition-all uppercase tracking-widest"
+            >
+              Crear Sala
+            </button>
+            <button
+              onClick={() => setShowPrivateBetModal(false)}
+              className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold py-3 rounded-xl transition-all uppercase tracking-widest"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!gameResultModal} onClose={handleLeaveRoom} title={gameResultModal?.didWin ? "¡GANASTE!" : "Game Over"}>
         <div className="space-y-6 text-center">
           <p className="text-white/90 font-bold text-2xl">
             {gameResultModal?.didWin ? '¡Felicidades, ganaste la partida!' : `${gameResultModal?.winnerColor?.toUpperCase()} ganó la partida.`}
           </p>
+
+          {gameResultModal?.didWin && gameResultModal?.coinsDelta !== undefined && (
+            <motion.div
+              initial={{ scale: 0, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+              className="bg-gradient-to-r from-yellow-500/20 to-amber-500/20 border-2 border-yellow-500/50 rounded-2xl p-6"
+            >
+              <div className="flex items-center justify-center gap-3 mb-2">
+                <Coins className="w-8 h-8 text-yellow-400" />
+                <p className="text-yellow-400 font-heading text-3xl">+{gameResultModal.coinsDelta}</p>
+              </div>
+              <p className="text-white/60 text-sm uppercase tracking-widest font-bold">Coins Ganados</p>
+              <p className="text-white/40 text-xs mt-2">Total: {currentUser?.coins} coins</p>
+            </motion.div>
+          )}
+
           <button
             onClick={handleLeaveRoom}
             className="w-full bg-yellow-500 text-slate-900 font-black py-4 rounded-2xl hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-wider"
@@ -1868,7 +2017,7 @@ export default function App() {
       <Modal isOpen={isLandscape} onClose={() => {}} title="Gira tu dispositivo">
         <div className="space-y-6 text-center">
           <div className="flex justify-center">
-            <div className="text-6xl">📱</div>
+            <Smartphone className="w-24 h-24 text-white/80" />
           </div>
           <p className="text-white/90 font-bold text-xl">
             Por favor, gira tu dispositivo a modo vertical
@@ -1906,7 +2055,8 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+      </div>
+    </FrameRegistryProvider>
   );
 }
 

@@ -8,45 +8,45 @@ async function debug() {
 
   try {
     // 1. Get admin user from auth
-    console.log('1️⃣ Getting admin user from auth...');
+    console.log('[1] Getting admin user from auth...');
     const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
     const adminAuth = authData?.users?.find(u => u.email === 'admin@admin.com');
 
     if (!adminAuth) {
-      console.log('❌ No admin user found in auth');
+      console.log('[ERROR] No admin user found in auth');
       process.exit(1);
     }
 
     const userId = adminAuth.id;
-    console.log(`✅ Found: ${adminAuth.email} (ID: ${userId})\n`);
+    console.log(`[OK] Found: ${adminAuth.email} (ID: ${userId})\n`);
 
     // 2. Check if admin_users table exists
-    console.log('2️⃣ Checking admin_users table...');
+    console.log('[2] Checking admin_users table...');
     const { data: tableTest, error: tableError } = await supabaseAdmin
       .from('admin_users')
       .select('*')
       .limit(1);
 
     if (tableError?.code === '42P01') {
-      console.log('❌ Table admin_users does NOT exist');
+      console.log('[ERROR] Table admin_users does NOT exist');
       process.exit(1);
     } else if (tableError) {
-      console.log('⚠️  Table error:', tableError.message);
+      console.log('[WARN]  Table error:', tableError.message);
     } else {
-      console.log('✅ Table exists\n');
+      console.log('[OK] Table exists\n');
     }
 
     // 3. Check if user is in admin_users
-    console.log('3️⃣ Checking if user is in admin_users...');
+    console.log('[3] Checking if user is in admin_users...');
     const { data: adminRow, error: adminError } = await supabaseAdmin
       .from('admin_users')
       .select('*')
       .eq('id', userId);
 
     if (adminError) {
-      console.log('❌ Query error:', adminError.message);
+      console.log('[ERROR] Query error:', adminError.message);
     } else if (!adminRow || adminRow.length === 0) {
-      console.log('❌ User NOT in admin_users table');
+      console.log('[ERROR] User NOT in admin_users table');
       console.log('\n   Inserting user now...');
 
       const { error: insertError } = await supabaseAdmin
@@ -54,25 +54,25 @@ async function debug() {
         .insert([{ id: userId, role: 'admin' }]);
 
       if (insertError) {
-        console.log('   ❌ Insert error:', insertError.message);
+        console.log('   [ERROR] Insert error:', insertError.message);
       } else {
-        console.log('   ✅ User inserted\n');
+        console.log('   [OK] User inserted\n');
       }
     } else {
-      console.log('✅ User IS in admin_users table');
+      console.log('[OK] User IS in admin_users table');
       console.log('   Data:', adminRow[0], '\n');
     }
 
     // 4. Test the endpoint manually
-    console.log('4️⃣ Testing isUserAdmin function...');
+    console.log('[4] Testing isUserAdmin function...');
     const { data: testAdmin } = await supabaseAdmin
       .from('admin_users')
       .select('id')
       .eq('id', userId)
       .single();
 
-    console.log('   Result:', testAdmin ? '✅ IS ADMIN' : '❌ NOT ADMIN');
-    console.log('\n5️⃣ Testing full auth flow...');
+    console.log('   Result:', testAdmin ? '[OK] IS ADMIN' : '[ERROR] NOT ADMIN');
+    console.log('\n[5] Testing full auth flow...');
 
     // Login and get token
     const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
@@ -81,12 +81,12 @@ async function debug() {
     });
 
     if (loginError) {
-      console.log('❌ Login error:', loginError.message);
+      console.log('[ERROR] Login error:', loginError.message);
       process.exit(1);
     }
 
     const token = loginData.session?.access_token;
-    console.log('✅ Got token\n');
+    console.log('[OK] Got token\n');
 
     // Test endpoint with token
     console.log('6️⃣ Simulating endpoint call...');
@@ -97,7 +97,7 @@ async function debug() {
       .eq('id', userData.user?.id)
       .single();
 
-    console.log('   Is Admin:', !!isAdminResult.data ? '✅ YES' : '❌ NO');
+    console.log('   Is Admin:', !!isAdminResult.data ? '[OK] YES' : '[ERROR] NO');
 
     console.log('\n' + '='.repeat(60));
     if (isAdminResult.data) {
@@ -105,14 +105,14 @@ async function debug() {
       console.log('\n   Try reloading the app and logging in again.');
       console.log('   The admin panel should appear in Settings.');
     } else {
-      console.log('❌ Something is wrong with the admin setup.');
+      console.log('[ERROR] Something is wrong with the admin setup.');
     }
     console.log('='.repeat(60) + '\n');
 
     process.exit(0);
 
   } catch (e: any) {
-    console.error('❌ Error:', e.message);
+    console.error('[ERROR] Error:', e.message);
     process.exit(1);
   }
 }

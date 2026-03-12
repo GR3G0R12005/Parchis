@@ -19,9 +19,9 @@ async function uploadAssets() {
         public: true,
         fileSizeLimit: 52428800, // 50MB
       });
-      console.log('✅ Bucket created\n');
+      console.log('[OK] Bucket created\n');
     } else {
-      console.log('✅ Bucket already exists\n');
+      console.log('[OK] Bucket already exists\n');
     }
 
     // Upload files
@@ -57,7 +57,7 @@ async function uploadAssets() {
       const filePath = file.localPath;
 
       if (!fs.existsSync(filePath)) {
-        console.log(`⚠️  File not found: ${filePath}`);
+        console.log(`[WARN]  File not found: ${filePath}`);
         continue;
       }
 
@@ -74,10 +74,10 @@ async function uploadAssets() {
         });
 
       if (error) {
-        console.log(`❌ Failed: ${error.message}`);
+        console.log(`[ERROR] Failed: ${error.message}`);
       } else {
         const publicUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/assets/${file.storagePath}`;
-        console.log(`✅ Uploaded: ${publicUrl}\n`);
+        console.log(`[OK] Uploaded: ${publicUrl}\n`);
       }
     }
 
@@ -86,7 +86,7 @@ async function uploadAssets() {
     console.log('   Board: /assets/boards/tablero.png');
     console.log('   Music: /assets/music/Parchisi_Dreams.mp3');
   } catch (error: any) {
-    console.error('❌ Error:', error.message);
+    console.error('[ERROR] Error:', error.message);
     process.exit(1);
   }
 }

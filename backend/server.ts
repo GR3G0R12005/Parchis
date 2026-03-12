@@ -614,6 +614,39 @@ async function startServer() {
     // Rewards removed - users decide stakes when joining
     const coinChanges: Record<string, { delta: number; coins: number }> = {};
 
+    // Calculate prize distribution
+    if (resolvedWinnerUid) {
+      let prizeAmount = 0;
+
+      // Private game prize calculation
+      if (room.privateGameBet && room.privateGameBet > 0) {
+        const totalPool = room.privateGameBet * participants.length;
+        const commissionPercentage = room.privateGameCommission || 10;
+        const commission = Math.round(totalPool * (commissionPercentage / 100));
+        prizeAmount = totalPool - commission;
+      }
+      // Public game prize calculation
+      else if (room.gameMode && room.gameMode.entry_fee > 0) {
+        const totalPool = room.gameMode.entry_fee * participants.length;
+        prizeAmount = totalPool - room.gameMode.admin_cut;
+      }
+
+      if (prizeAmount > 0) {
+        (async () => {
+          try {
+            const winner = await supabaseDbService.getUserProfile(resolvedWinnerUid);
+            if (winner) {
+              const newCoins = winner.coins + prizeAmount;
+              await supabaseAdmin.from('users').update({ coins: newCoins }).eq('id', resolvedWinnerUid);
+              coinChanges[resolvedWinnerUid] = { delta: prizeAmount, coins: newCoins };
+            }
+          } catch (e) {
+            console.error('Error distributing prize:', e);
+          }
+        })();
+      }
+    }
+
     io.to(roomId).emit("game-won", { winnerColor, winnerUid: resolvedWinnerUid, reason, coinChanges });
   };
 
@@ -899,11 +932,41 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
 
-    socket.on("join-room", ({ roomId, id }) => {
-      console.log(`Join Room: room=${roomId}, id=${id}`);
+    socket.on("join-room", ({ roomId, id, privateGameBet }) => {
+      console.log(`Join Room: room=${roomId}, id=${id}, privateGameBet=${privateGameBet}`);
       socket.join(roomId);
       if (!rooms.has(roomId)) {
-        rooms.set(roomId, { id: roomId, players: [], gameState: null, status: "waiting", creatorId: id });
+        (async () => {
+          try {
+            let commission = 10; // Default
+            if (privateGameBet && privateGameBet > 0) {
+              const commissionValue = await supabaseDbService.getAdminSetting("private_game_commission");
+              if (commissionValue) {
+                commission = parseInt(commissionValue);
+              }
+            }
+            rooms.set(roomId, {
+              id: roomId,
+              players: [],
+              gameState: null,
+              status: "waiting",
+              creatorId: id,
+              privateGameBet: privateGameBet || 0,
+              privateGameCommission: commission
+            });
+          } catch (e) {
+            console.error('Failed to load commission:', e);
+            rooms.set(roomId, {
+              id: roomId,
+              players: [],
+              gameState: null,
+              status: "waiting",
+              creatorId: id,
+              privateGameBet: privateGameBet || 0,
+              privateGameCommission: 10
+            });
+          }
+        })();
       }
       const room = rooms.get(roomId);
 
@@ -933,6 +996,26 @@ async function startServer() {
         const assignedColor = colors[room.players.length];
         room.players.push({ id, color: assignedColor, socketId: socket.id });
         socket.emit("player-assigned", assignedColor);
+
+        // Handle bets for private rooms
+        if (room.privateGameBet && room.privateGameBet > 0) {
+          (async () => {
+            try {
+              const user = await supabaseDbService.getUserProfile(id);
+              if (user && user.coins >= room.privateGameBet) {
+                await supabaseAdmin.from('users').update({ coins: user.coins - room.privateGameBet }).eq('id', id);
+                socket.emit("bet-deducted", { amount: room.privateGameBet, remaining: user.coins - room.privateGameBet });
+              } else {
+                socket.emit("insufficient-funds", { required: room.privateGameBet, have: user?.coins || 0 });
+                room.players = room.players.filter((p: any) => p.id !== id);
+                socket.leave(roomId);
+                return;
+              }
+            } catch (e) {
+              console.error('Bet handling error:', e);
+            }
+          })();
+        }
       }
 
       const isPublicRoom = roomId.startsWith("public-");
@@ -1545,8 +1628,34 @@ async function startServer() {
         return res.status(403).json({ error: "Unauthorized" });
       }
 
-      const stats = await supabaseDbService.getStatistics();
-      res.json(stats);
+      // Count active games and users from in-memory rooms (not persisted to DB during active gameplay)
+      let activeGamesCount = 0;
+      const activeUsersSet = new Set<string>();
+
+      rooms.forEach((room: any) => {
+        if (room.status === 'playing') {
+          activeGamesCount++;
+          room.players.forEach((player: any) => {
+            activeUsersSet.add(player.id);
+          });
+        }
+      });
+
+      // Get total users and games from database
+      const { count: totalUsersCount } = await supabaseAdmin
+        .from('users')
+        .select('*', { count: 'exact' });
+
+      const { count: totalGamesCount } = await supabaseAdmin
+        .from('game_history')
+        .select('*', { count: 'exact' });
+
+      res.json({
+        activeGames: activeGamesCount,
+        activeUsers: activeUsersSet.size,
+        totalUsers: totalUsersCount || 0,
+        totalGames: totalGamesCount || 0,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -1829,6 +1938,105 @@ async function startServer() {
       });
 
       res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Game modes endpoints
+  app.get("/api/game-modes", async (req, res) => {
+    try {
+      const modes = await supabaseDbService.getGameModes();
+      res.json(modes);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/admin/game-modes", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { name, display_name, description, entry_fee, admin_cut } = req.body;
+      const mode = await supabaseDbService.createGameMode(name, display_name, entry_fee || 0, admin_cut || 0, description);
+      res.json(mode);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/admin/game-modes/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { display_name, description, entry_fee, admin_cut, is_active } = req.body;
+      const updated = await supabaseDbService.updateGameMode(req.params.id, {
+        display_name,
+        description,
+        entry_fee,
+        admin_cut,
+        is_active
+      });
+
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/admin/game-modes/:id", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      await supabaseDbService.deleteGameMode(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Admin settings endpoints
+  app.get("/api/admin/settings/private-commission", async (req, res) => {
+    try {
+      const value = await supabaseDbService.getAdminSetting("private_game_commission");
+      const commission = value ? parseInt(value) : 10; // Default 10%
+      res.json({ commission });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.put("/api/admin/settings/private-commission", async (req, res) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const { data: { user } } = await supabaseAdmin.auth.getUser(token);
+
+      if (!user || !(await supabaseDbService.isUserAdmin(user.id))) {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const { commission } = req.body;
+      if (typeof commission !== 'number' || commission < 0 || commission > 50) {
+        return res.status(400).json({ error: "Commission must be between 0 and 50" });
+      }
+
+      await supabaseDbService.setAdminSetting("private_game_commission", commission.toString(), user.id);
+      res.json({ commission });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

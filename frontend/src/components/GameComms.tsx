@@ -28,11 +28,10 @@ interface GameCommsProps {
   socket: Socket | null;
   roomId: string | null;
   currentUser: { id: string; username: string; avatar: string } | null;
-  onFramesChange?: (frames: Map<string, string>) => void;
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export const GameComms: React.FC<GameCommsProps> = ({ socket, roomId, currentUser, onFramesChange }) => {
+export const GameComms: React.FC<GameCommsProps> = ({ socket, roomId, currentUser }) => {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [tab, setTab] = useState<'chat' | 'voice'>('chat');
   const [inputText, setInputText] = useState('');
@@ -56,13 +55,8 @@ export const GameComms: React.FC<GameCommsProps> = ({ socket, roomId, currentUse
     sendMessage,
   } = useWebRTC(socket, roomId, currentUser);
 
-  // Video frames via socket.io — camera shown in avatars
-  const videoFrames = useVideoFrames(socket, roomId, currentUser?.id ?? null, cameraStream);
-
-  // Propagate frames to parent (avatar display)
-  useEffect(() => {
-    if (onFramesChange) onFramesChange(videoFrames);
-  }, [videoFrames, onFramesChange]);
+  // Video frames via socket.io → registry updates avatar <img> elements directly
+  useVideoFrames(socket, roomId, currentUser?.id ?? null, cameraStream);
 
   // Wire camera stream into the footer preview
   useEffect(() => {

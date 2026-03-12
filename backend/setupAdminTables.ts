@@ -12,10 +12,10 @@ async function setup() {
   for (const table of tables) {
     const { data, error } = await supabaseAdmin.from(table).select('*').limit(1);
     if (error) {
-      console.log(`❌ Table "${table}" error: ${error.message}`);
+      console.log(`[ERROR] Table "${table}" error: ${error.message}`);
       console.log(`   You need to create this table in the Supabase SQL Editor.`);
     } else {
-      console.log(`✅ Table "${table}" exists (${data.length} rows found)`);
+      console.log(`[OK] Table "${table}" exists (${data.length} rows found)`);
     }
   }
 

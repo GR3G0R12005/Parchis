@@ -207,4 +207,85 @@ ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_yellow TEXT;
 ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_green TEXT;
 ALTER TABLE token_styles ADD COLUMN IF NOT EXISTS image_blue TEXT;
 
+-- Create game_modes table
+CREATE TABLE IF NOT EXISTS game_modes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  description TEXT,
+  entry_fee INTEGER NOT NULL DEFAULT 0,
+  admin_cut INTEGER NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  is_default BOOLEAN NOT NULL DEFAULT FALSE,
+  display_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Create indexes for game_modes
+CREATE INDEX IF NOT EXISTS idx_game_modes_active ON game_modes(is_active);
+CREATE INDEX IF NOT EXISTS idx_game_modes_default ON game_modes(is_default);
+
+-- Enable RLS for game_modes
+ALTER TABLE game_modes ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for game_modes table (anyone can read, only admins can modify)
+CREATE POLICY "Anyone can read game modes" ON game_modes FOR SELECT USING (is_active = TRUE);
+CREATE POLICY "Admins can insert game modes" ON game_modes FOR INSERT WITH CHECK (
+  auth.uid() IN (SELECT id FROM admin_users)
+);
+CREATE POLICY "Admins can update game modes" ON game_modes FOR UPDATE USING (
+  auth.uid() IN (SELECT id FROM admin_users)
+);
+CREATE POLICY "Admins can delete game modes" ON game_modes FOR DELETE USING (
+  auth.uid() IN (SELECT id FROM admin_users)
+);
+
+-- Create room_bets table to track player bets in each room
+CREATE TABLE IF NOT EXISTS room_bets (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES game_rooms(id) ON DELETE CASCADE,
+  player_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  game_mode_id UUID REFERENCES game_modes(id) ON DELETE SET NULL,
+  entry_fee INTEGER NOT NULL,
+  admin_cut INTEGER NOT NULL,
+  prize_amount INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  UNIQUE(room_id, player_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_room_bets_room_id ON room_bets(room_id);
+CREATE INDEX IF NOT EXISTS idx_room_bets_player_id ON room_bets(player_id);
+
+-- Enable RLS for room_bets
+ALTER TABLE room_bets ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for room_bets table
+CREATE POLICY "Anyone can read room bets" ON room_bets FOR SELECT USING (TRUE);
+CREATE POLICY "Users can insert their own bets" ON room_bets FOR INSERT WITH CHECK (auth.uid() = player_id);
+CREATE POLICY "System can update bets" ON room_bets FOR UPDATE USING (TRUE);
+
+-- Create admin_settings table
+CREATE TABLE IF NOT EXISTS admin_settings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  setting_key TEXT NOT NULL UNIQUE,
+  setting_value TEXT NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_by UUID REFERENCES admin_users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_settings_key ON admin_settings(setting_key);
+
+-- Enable RLS for admin_settings
+ALTER TABLE admin_settings ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies for admin_settings
+CREATE POLICY "Anyone can read admin settings" ON admin_settings FOR SELECT USING (TRUE);
+CREATE POLICY "Admins can update admin settings" ON admin_settings FOR UPDATE USING (
+  auth.uid() IN (SELECT id FROM admin_users)
+);
+CREATE POLICY "Admins can insert admin settings" ON admin_settings FOR INSERT WITH CHECK (
+  auth.uid() IN (SELECT id FROM admin_users)
+);
+
 -- No default data - admin creates all packages, boards and tokens from the admin panel

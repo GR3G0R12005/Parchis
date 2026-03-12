@@ -8,7 +8,7 @@ async function fullSetup() {
 
   try {
     // Step 1: Create admin_users table
-    console.log('1️⃣ Creating admin_users table...');
+    console.log('[1] Creating admin_users table...');
     let { error: adminTableError } = await supabaseAdmin.rpc('exec', {
       sql: `CREATE TABLE IF NOT EXISTS admin_users (
         id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -18,14 +18,14 @@ async function fullSetup() {
     });
 
     if (adminTableError) {
-      console.log('⚠️  Using direct approach...');
+      console.log('[WARN]  Using direct approach...');
       // Try direct SQL approach
       const { error } = await supabaseAdmin.from('_internal').select('*').limit(1);
     }
-    console.log('✅ Admin table ready\n');
+    console.log('[OK] Admin table ready\n');
 
     // Step 2: Create store_packages table
-    console.log('2️⃣ Creating store_packages table...');
+    console.log('[2] Creating store_packages table...');
     await supabaseAdmin.rpc('exec', {
       sql: `CREATE TABLE IF NOT EXISTS store_packages (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -39,10 +39,10 @@ async function fullSetup() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );`
     });
-    console.log('✅ Store packages table ready\n');
+    console.log('[OK] Store packages table ready\n');
 
     // Step 3: Create board_themes table
-    console.log('3️⃣ Creating board_themes table...');
+    console.log('[3] Creating board_themes table...');
     await supabaseAdmin.rpc('exec', {
       sql: `CREATE TABLE IF NOT EXISTS board_themes (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -56,10 +56,10 @@ async function fullSetup() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );`
     });
-    console.log('✅ Board themes table ready\n');
+    console.log('[OK] Board themes table ready\n');
 
     // Step 4: Create token_styles table
-    console.log('4️⃣ Creating token_styles table...');
+    console.log('[4] Creating token_styles table...');
     await supabaseAdmin.rpc('exec', {
       sql: `CREATE TABLE IF NOT EXISTS token_styles (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -72,19 +72,19 @@ async function fullSetup() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );`
     });
-    console.log('✅ Token styles table ready\n');
+    console.log('[OK] Token styles table ready\n');
 
     // Step 5: Delete existing admin user if exists
-    console.log('5️⃣ Checking for existing admin user...');
+    console.log('[5] Checking for existing admin user...');
     const { data: existingAuth } = await supabaseAdmin.auth.admin.listUsers();
     const existingUser = existingAuth?.users?.find(u => u.email === 'admin@admin.com');
 
     if (existingUser) {
       console.log('   Found existing user, deleting...');
       await supabaseAdmin.auth.admin.deleteUser(existingUser.id);
-      console.log('✅ Old user deleted\n');
+      console.log('[OK] Old user deleted\n');
     } else {
-      console.log('✅ No existing user found\n');
+      console.log('[OK] No existing user found\n');
     }
 
     // Step 6: Create admin user in Auth
@@ -96,12 +96,12 @@ async function fullSetup() {
     });
 
     if (authError) {
-      console.error('❌ Auth creation error:', authError.message);
+      console.error('[ERROR] Auth creation error:', authError.message);
       process.exit(1);
     }
 
     const userId = authData.user?.id;
-    console.log(`✅ User created with ID: ${userId}\n`);
+    console.log(`[OK] User created with ID: ${userId}\n`);
 
     // Step 7: Create user profile
     console.log('7️⃣ Creating user profile...');
@@ -121,11 +121,11 @@ async function fullSetup() {
       ]);
 
     if (profileError) {
-      console.error('❌ Profile error:', profileError.message);
+      console.error('[ERROR] Profile error:', profileError.message);
       process.exit(1);
     }
 
-    console.log('✅ Profile created\n');
+    console.log('[OK] Profile created\n');
 
     // Step 8: Make user admin
     console.log('8️⃣ Making user admin...');
@@ -140,11 +140,11 @@ async function fullSetup() {
       ]);
 
     if (adminError) {
-      console.error('❌ Admin setup error:', adminError.message);
+      console.error('[ERROR] Admin setup error:', adminError.message);
       // Try alternative approach
       console.log('   Trying alternative method...');
     } else {
-      console.log('✅ User is now admin\n');
+      console.log('[OK] User is now admin\n');
     }
 
     // Step 9: Verify
@@ -157,7 +157,7 @@ async function fullSetup() {
       .single();
 
     if (verifyAuth && verifyProfile) {
-      console.log('✅ Verification successful!\n');
+      console.log('[OK] Verification successful!\n');
 
       console.log('=' .repeat(60));
       console.log('🎉 SETUP COMPLETE!\n');
@@ -174,12 +174,12 @@ async function fullSetup() {
 
       process.exit(0);
     } else {
-      console.error('❌ Verification failed');
+      console.error('[ERROR] Verification failed');
       process.exit(1);
     }
 
   } catch (e: any) {
-    console.error('❌ Error:', e.message);
+    console.error('[ERROR] Error:', e.message);
     console.error('\n💡 Tip: If RPC fails, try running the SQL manually in Supabase');
     process.exit(1);
   }

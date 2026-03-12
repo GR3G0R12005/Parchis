@@ -12,7 +12,7 @@ async function fixAdmin() {
     const adminUser = users?.users?.find(u => u.email === 'admin@admin.com');
 
     if (!adminUser) {
-      console.error('❌ Admin user not found in auth');
+      console.error('[ERROR] Admin user not found in auth');
       process.exit(1);
     }
 
@@ -20,7 +20,7 @@ async function fixAdmin() {
     console.log(`Found admin user: ${userId}\n`);
 
     // Step 1: Try to create admin_users table with SQL
-    console.log('1️⃣ Creating admin_users table with SQL...');
+    console.log('[1] Creating admin_users table with SQL...');
 
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS public.admin_users (
@@ -35,13 +35,13 @@ async function fixAdmin() {
     const { error: createError } = await supabaseAdmin.rpc('exec', { sql: createTableSQL });
 
     if (createError) {
-      console.log('⚠️  RPC approach failed, trying direct insert...');
+      console.log('[WARN]  RPC approach failed, trying direct insert...');
     } else {
-      console.log('✅ Table created\n');
+      console.log('[OK] Table created\n');
     }
 
     // Step 2: Insert admin user
-    console.log('2️⃣ Inserting admin user into admin_users table...');
+    console.log('[2] Inserting admin user into admin_users table...');
 
     const { error: insertError } = await supabaseAdmin
       .from('admin_users')
@@ -54,7 +54,7 @@ async function fixAdmin() {
       ]);
 
     if (insertError) {
-      console.log('❌ Insert error:', insertError.message);
+      console.log('[ERROR] Insert error:', insertError.message);
       console.log('\n📝 The table might not exist. You need to create it manually in Supabase.');
       console.log('   Go to: https://supabase.cloudteco.com/');
       console.log('   SQL Editor → New Query → Copy this:\n');
@@ -74,10 +74,10 @@ VALUES ('${userId}', 'admin', NOW());
       process.exit(1);
     }
 
-    console.log('✅ Admin user inserted\n');
+    console.log('[OK] Admin user inserted\n');
 
     // Step 3: Verify
-    console.log('3️⃣ Verifying...');
+    console.log('[3] Verifying...');
     const { data: adminCheck, error: checkError } = await supabaseAdmin
       .from('admin_users')
       .select('*')
@@ -85,12 +85,12 @@ VALUES ('${userId}', 'admin', NOW());
       .single();
 
     if (checkError) {
-      console.error('❌ Verification failed:', checkError.message);
+      console.error('[ERROR] Verification failed:', checkError.message);
       process.exit(1);
     }
 
     if (adminCheck) {
-      console.log('✅ Verification successful!\n');
+      console.log('[OK] Verification successful!\n');
       console.log('=' .repeat(60));
       console.log('🎉 ADMIN SETUP COMPLETE!\n');
       console.log('📋 Credentials:');
@@ -105,7 +105,7 @@ VALUES ('${userId}', 'admin', NOW());
     }
 
   } catch (e: any) {
-    console.error('❌ Error:', e.message);
+    console.error('[ERROR] Error:', e.message);
     process.exit(1);
   }
 }

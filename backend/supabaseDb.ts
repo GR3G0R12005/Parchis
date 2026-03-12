@@ -467,6 +467,129 @@ export const supabaseDbService = {
     return !!data;
   },
 
+  // Game modes operations
+  getGameModes: async (): Promise<any[]> => {
+    const { data, error } = await supabase
+      .from('game_modes')
+      .select('*')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true });
+
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
+  createGameMode: async (name: string, displayName: string, entryFee: number = 0, adminCut: number = 0, description?: string): Promise<any> => {
+    const { data, error } = await supabaseAdmin
+      .from('game_modes')
+      .insert([{ name, display_name: displayName, description, entry_fee: entryFee, admin_cut: adminCut, is_default: false }])
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  updateGameMode: async (modeId: string, updates: any): Promise<any> => {
+    const { data, error } = await supabaseAdmin
+      .from('game_modes')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', modeId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  deleteGameMode: async (modeId: string): Promise<void> => {
+    const { error } = await supabaseAdmin
+      .from('game_modes')
+      .delete()
+      .eq('id', modeId);
+
+    if (error) throw new Error(error.message);
+  },
+
+  // Room bets operations
+  createRoomBet: async (roomId: string, playerId: string, gameModeId: string | null, entryFee: number, adminCut: number): Promise<any> => {
+    const { data, error } = await supabaseAdmin
+      .from('room_bets')
+      .insert([{ room_id: roomId, player_id: playerId, game_mode_id: gameModeId, entry_fee: entryFee, admin_cut: adminCut }])
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  getRoomBets: async (roomId: string): Promise<any[]> => {
+    const { data, error } = await supabaseAdmin
+      .from('room_bets')
+      .select('*')
+      .eq('room_id', roomId);
+
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+
+  updateRoomBetPrize: async (betId: string, prizeAmount: number): Promise<any> => {
+    const { data, error } = await supabaseAdmin
+      .from('room_bets')
+      .update({ prize_amount: prizeAmount })
+      .eq('id', betId)
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  // Admin settings operations
+  getAdminSetting: async (key: string): Promise<string | null> => {
+    const { data, error } = await supabaseAdmin
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', key)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw new Error(error.message);
+    return data?.setting_value || null;
+  },
+
+  setAdminSetting: async (key: string, value: string, adminId?: string): Promise<any> => {
+    const { data: existing, error: getError } = await supabaseAdmin
+      .from('admin_settings')
+      .select('id')
+      .eq('setting_key', key)
+      .single();
+
+    if (getError && getError.code !== 'PGRST116') throw new Error(getError.message);
+
+    if (existing) {
+      // Update existing
+      const { data, error } = await supabaseAdmin
+        .from('admin_settings')
+        .update({ setting_value: value, updated_at: new Date().toISOString(), updated_by: adminId })
+        .eq('setting_key', key)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data;
+    } else {
+      // Insert new
+      const { data, error } = await supabaseAdmin
+        .from('admin_settings')
+        .insert([{ setting_key: key, setting_value: value, updated_by: adminId }])
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+      return data;
+    }
+  },
+
   // Statistics operations
   getStatistics: async (): Promise<{ activeGames: number; activeUsers: number; totalUsers: number; totalGames: number }> => {
     try {

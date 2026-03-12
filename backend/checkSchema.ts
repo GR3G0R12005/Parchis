@@ -10,11 +10,11 @@ async function check() {
       .limit(1);
     
     if (error) {
-      console.log('❌ Table admin_users DOES NOT EXIST');
+      console.log('[ERROR] Table admin_users DOES NOT EXIST');
       console.log('   Error:', error.message);
       process.exit(1);
     } else {
-      console.log('✅ Table admin_users EXISTS');
+      console.log('[OK] Table admin_users EXISTS');
       process.exit(0);
     }
   } catch (e) {
