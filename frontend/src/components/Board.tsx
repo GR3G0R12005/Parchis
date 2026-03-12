@@ -198,6 +198,10 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
         zIndex: 40 + tokenIndex,
       },
       scale,
+      anchor: {
+        x: point.x + (isHome ? 0 : 0.5 + (offset.x / 100)),
+        y: point.y + (isHome ? 0 : 0.5 + (offset.y / 100)),
+      },
     };
   };
 
@@ -248,39 +252,42 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
         {pendingToken && (() => {
           const pt = pendingToken;
           if (pt.position === -1) return null;
-          let point: Point;
-          if (pt.position > 68) point = getFinalPathCoords(pt.color, pt.position);
-          else point = getSquareCoords(pt.position);
+          const popupTokenCoords = getTokenCoords(pt);
           if (pendingDice.length === 0) return null;
 
           return (
-            <motion.div
-              key={pt.id}
-              initial={{ opacity: 0, scale: 0.7, y: 6 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.7 }}
-              className="absolute z-[60] pointer-events-auto flex gap-1 items-center bg-black/75 backdrop-blur-sm border border-white/20 rounded-xl px-2 py-1 shadow-xl"
+            <div
+              className="absolute z-[60] pointer-events-auto"
               style={{
-                left: `${(point.x / GRID) * 100}%`,
-                top: `${(point.y / GRID) * 100}%`,
-                transform: 'translate(-30%, -130%)',
+                left: `${(popupTokenCoords.anchor.x / GRID) * 100}%`,
+                top: `${(popupTokenCoords.anchor.y / GRID) * 100}%`,
+                transform: `rotate(${-rotationDeg}deg) translate(-50%, calc(-100% - 8px))`,
+                transformOrigin: '0 0',
               }}
             >
-              {pendingDice.map((die, idx) => {
-                return (
-                  <button
-                    key={idx}
-                    onClick={() => onDieSelect?.(die)}
-                    className={cn(
-                      "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md transition-all",
-                      "bg-white active:scale-90 cursor-pointer"
-                    )}
-                  >
-                    {die}
-                  </button>
-                );
-              })}
-            </motion.div>
+              <motion.div
+                key={pt.id}
+                initial={{ opacity: 0, scale: 0.7, y: 6 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.7 }}
+                className="flex gap-1 items-center bg-black/75 backdrop-blur-sm border border-white/20 rounded-xl px-2 py-1 shadow-xl"
+              >
+                {pendingDice.map((die, idx) => {
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => onDieSelect?.(die)}
+                      className={cn(
+                        "w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-slate-900 font-black text-sm sm:text-base flex items-center justify-center shadow-md transition-all",
+                        "bg-white active:scale-90 cursor-pointer"
+                      )}
+                    >
+                      {die}
+                    </button>
+                  );
+                })}
+              </motion.div>
+            </div>
           );
         })()}
 
@@ -308,7 +315,7 @@ export const ParchisBoard: React.FC<BoardProps> = ({ tokens, onTokenClick, highl
 
 const TokenComponent: React.FC<{
   token: Token;
-  coords: { position: React.CSSProperties; scale: number };
+  coords: { position: React.CSSProperties; scale: number; anchor: Point };
   onClick: () => void;
   tokenStyle?: string;
   tokenImages?: Partial<Record<PlayerColor, string>>;
